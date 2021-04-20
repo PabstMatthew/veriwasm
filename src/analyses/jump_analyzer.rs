@@ -5,7 +5,7 @@ use crate::lattices::stacklattice::StackSlot;
 use crate::lattices::switchlattice::{SwitchLattice, SwitchValue, SwitchValueLattice};
 use crate::lattices::VarState;
 use crate::utils::lifter::{Binopcode, IRMap, MemArg, MemArgs, ValSize, Value};
-use crate::utils::utils::{get_rsp_offset, LucetMetadata};
+use crate::utils::utils::{get_rsp_offset, CompilerMetadata};
 use std::default::Default;
 use yaxpeax_core::analyses::control_flow::VW_CFG;
 
@@ -19,7 +19,7 @@ pub fn analyze_jumps(
 }
 
 pub struct SwitchAnalyzer {
-    pub metadata: LucetMetadata,
+    pub metadata: CompilerMetadata,
     pub reaching_defs: AnalysisResult<ReachLattice>,
     pub reaching_analyzer: ReachingDefnAnalyzer,
 }

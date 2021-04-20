@@ -4,11 +4,11 @@ use crate::lattices::heaplattice::{HeapLattice, HeapValue, HeapValueLattice};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::lattices::VarState;
 use crate::utils::lifter::{MemArg, MemArgs, ValSize, Value};
-use crate::utils::utils::LucetMetadata;
+use crate::utils::utils::CompilerMetadata;
 use std::default::Default;
 
 pub struct HeapAnalyzer {
-    pub metadata: LucetMetadata,
+    pub metadata: CompilerMetadata,
 }
 
 impl AbstractAnalyzer<HeapLattice> for HeapAnalyzer {

@@ -9,11 +9,11 @@ use crate::lattices::reachingdefslattice::{LocIdx, ReachLattice};
 use crate::lattices::stacklattice::StackSlot;
 use crate::lattices::VarState;
 use crate::utils::lifter::{Binopcode, IRMap, MemArg, MemArgs, ValSize, Value};
-use crate::utils::utils::LucetMetadata;
+use crate::utils::utils::CompilerMetadata;
 use std::default::Default;
 
 pub struct CallAnalyzer {
-    pub metadata: LucetMetadata,
+    pub metadata: CompilerMetadata,
     pub reaching_defs: AnalysisResult<ReachLattice>,
     pub reaching_analyzer: ReachingDefnAnalyzer,
 }

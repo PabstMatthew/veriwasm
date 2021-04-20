@@ -20,6 +20,12 @@ use yaxpeax_core::memory::MemoryRepr;
 use yaxpeax_core::ContextWrite;
 use yaxpeax_x86::long_mode::Arch as AMD64;
 
+#[derive(Clone, Copy)]
+pub enum Compiler {
+    Lucet,
+    Wamr,
+}
+
 pub fn load_program(binpath: &str) -> ModuleData {
     let program = yaxpeax_core::memory::reader::load_from_path(Path::new(binpath)).unwrap();
     let program = if let FileRepr::Executable(program) = program {
@@ -83,7 +89,7 @@ fn try_resolve_jumps(
     program: &ModuleData,
     contexts: &MergedContextTable,
     cfg: &VW_CFG,
-    metadata: &LucetMetadata,
+    metadata: &CompilerMetadata,
     irmap: &IRMap,
     _addr: u64,
 ) -> (VW_CFG, IRMap, i32, u32) {
@@ -109,7 +115,7 @@ fn resolve_cfg(
     program: &ModuleData,
     contexts: &MergedContextTable,
     cfg: &VW_CFG,
-    metadata: &LucetMetadata,
+    metadata: &CompilerMetadata,
     orig_irmap: &IRMap,
     addr: u64,
 ) -> (VW_CFG, IRMap) {
@@ -134,7 +140,7 @@ fn resolve_cfg(
 pub fn fully_resolved_cfg(
     program: &ModuleData,
     contexts: &MergedContextTable,
-    metadata: &LucetMetadata,
+    metadata: &CompilerMetadata,
     addr: u64,
 ) -> (VW_CFG, IRMap) {
     let (cfg, _) = get_cfg(program, contexts, addr, None);
@@ -195,9 +201,9 @@ pub fn get_data(
     (x86_64_data, addrs, plt_bounds)
 }
 
-pub fn get_one_resolved_cfg(binpath: &str, func: &str) -> ((VW_CFG, IRMap),x86_64Data) {
+pub fn get_one_resolved_cfg(binpath: &str, compiler: Compiler, func: &str) -> ((VW_CFG, IRMap),x86_64Data) {
     let program = load_program(binpath);
-    let metadata = load_metadata(binpath);
+    let metadata = load_metadata(binpath, compiler);
 
     // grab some details from the binary and panic if it's not what we expected
     let (_, sections, entrypoint, imports, exports, symbols) =
@@ -235,13 +241,14 @@ fn get_symbol_addr(symbols: &Vec<ELFSymbol>, name: &str) -> std::option::Option<
 }
 
 #[derive(Clone)]
-pub struct LucetMetadata {
+pub struct CompilerMetadata {
+    pub compiler: Compiler,
     pub guest_table_0: u64,
     pub lucet_tables: u64,
     pub lucet_probestack: u64,
 }
 
-pub fn load_metadata(binpath: &str) -> LucetMetadata {
+pub fn load_metadata(binpath: &str, compiler: Compiler) -> CompilerMetadata {
     let program = load_program(binpath);
 
     // grab some details from the binary and panic if it's not what we expected
@@ -261,14 +268,23 @@ pub fn load_metadata(binpath: &str) -> LucetMetadata {
             }
         };
 
-    let guest_table_0 = get_symbol_addr(symbols, "guest_table_0").unwrap();
-    let lucet_tables = get_symbol_addr(symbols, "lucet_tables").unwrap();
-    let lucet_probestack = get_symbol_addr(symbols, "lucet_probestack").unwrap();
-    println!(
-        "guest_table_0 = {:x} lucet_tables = {:x} probestack = {:x}",
-        guest_table_0, lucet_tables, lucet_probestack
-    );
-    LucetMetadata {
+    let mut guest_table_0: u64 = 0;
+    let mut lucet_tables: u64 = 0;
+    let mut lucet_probestack: u64 = 0;
+    match compiler {
+        Compiler::Wamr => {},
+        Compiler::Lucet => {
+            guest_table_0 = get_symbol_addr(symbols, "guest_table_0").unwrap();
+            lucet_tables = get_symbol_addr(symbols, "lucet_tables").unwrap();
+            lucet_probestack = get_symbol_addr(symbols, "lucet_probestack").unwrap();
+            println!(
+                "guest_table_0 = {:x} lucet_tables = {:x} probestack = {:x}",
+                guest_table_0, lucet_tables, lucet_probestack
+            );
+        },
+    }
+    CompilerMetadata {
+        compiler: compiler,
         guest_table_0: guest_table_0,
         lucet_tables: lucet_tables,
         lucet_probestack: lucet_probestack,

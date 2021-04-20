@@ -9,13 +9,13 @@ use crate::checkers::stack_checker::check_stack;
 use crate::utils::ir_utils::has_indirect_calls;
 use crate::utils::utils::{fully_resolved_cfg,get_data,get_one_resolved_cfg};
 use std::panic;
-use crate::utils::utils::{load_metadata, load_program};
+use crate::utils::utils::{Compiler, load_metadata, load_program};
 use yaxpeax_core::analyses::control_flow::check_cfg_integrity;
 
 fn full_test_helper(path: &str) {
     let program = load_program(&path);
     println!("Loading Metadata");
-    let metadata = load_metadata(&path);
+    let metadata = load_metadata(&path, Compiler::Lucet);
     let (x86_64_data, func_addrs, plt) = get_data(&path, &program);
     let valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
     for (addr, _func_name) in func_addrs {
@@ -53,8 +53,8 @@ fn negative_test_helper(path: &str, func_name: &str) {
     let (x86_64_data, func_addrs, plt) = get_data(&path, &program);
     let valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
     println!("Loading Metadata");
-    let metadata = load_metadata(&path);
-    let ((cfg, irmap),x86_64_data) = get_one_resolved_cfg(path, func_name);
+    let metadata = load_metadata(&path, Compiler::Lucet);
+    let ((cfg, irmap),x86_64_data) = get_one_resolved_cfg(path, Compiler::Lucet, func_name);
     println!("Analyzing: {:?}", func_name);
     check_cfg_integrity(&cfg.blocks, &cfg.graph);
     println!("Checking Stack Safety");
