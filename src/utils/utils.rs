@@ -316,11 +316,9 @@ pub fn get_rsp_offset(memargs: &MemArgs) -> Option<i64> {
 }
 
 // func name is valid if:
-// 1. starts with guest_func_
-// 2. ends in _# (where # is some number)
+// a. starts with guest_func_ and ends in a number (Lucet-specific)
+// b. starts with aot_func# (Wamr-specific)
 pub fn is_valid_func_name(name: &String) -> bool {
-    if name == "lucet_probestack"{
-        return false;
-    }
-    true
+    return name.starts_with("guest_func_") ||
+           name.starts_with("aot_func#");
 }
