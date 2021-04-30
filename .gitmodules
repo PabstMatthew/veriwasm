@@ -3,4 +3,4 @@
 	url = https://github.com/PabstMatthew/yaxpeax-core.git
 [submodule "yaxpeax-x86"]
 	path = yaxpeax-x86
-	url = https://github.com/PLSysSec/yaxpeax-x86.git
+	url = https://github.com/PabstMatthew/yaxpeax-x86.git
