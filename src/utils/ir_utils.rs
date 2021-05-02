@@ -52,6 +52,12 @@ pub fn is_stack_access(v: &Value) -> bool {
                     || memarg_is_stack(memarg2)
                     || memarg_is_stack(memarg3)
             }
+            MemArgs::MemScaleDisp(memarg1, memarg2, memarg3, memarg4) => {
+                return memarg_is_stack(memarg1)
+                    || memarg_is_stack(memarg2)
+                    || memarg_is_stack(memarg3)
+                    || memarg_is_stack(memarg4)
+            }
         }
     }
     false
@@ -62,7 +68,9 @@ pub fn extract_stack_offset(memargs: &MemArgs) -> i64 {
         MemArgs::Mem1Arg(_memarg) => 0,
         MemArgs::Mem2Args(_memarg1, memarg2) => get_imm_mem_offset(memarg2),
         MemArgs::Mem3Args(_memarg1, _memarg2, _memarg3)
-        | MemArgs::MemScale(_memarg1, _memarg2, _memarg3) => panic!("extract_stack_offset failed"),
+        | MemArgs::MemScale(_memarg1, _memarg2, _memarg3) 
+        | MemArgs::MemScale(_memarg1, _memarg2, _memarg3) 
+        | MemArgs::MemScaleDisp(_memarg1, _memarg2, _memarg3, _) => panic!("extract_stack_offset failed"),
     }
 }
 

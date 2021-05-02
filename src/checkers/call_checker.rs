@@ -148,5 +148,12 @@ pub fn print_mem_access(state: &CallCheckLattice, memargs: &MemArgs) {
             memarg_repr(state, y),
             memarg_repr(state, z)
         ),
+        MemArgs::MemScaleDisp(w, x, y, z) => println!(
+            "mem[{:?} + {:?}*{:?} + {:?}]",
+            memarg_repr(state, w),
+            memarg_repr(state, x),
+            memarg_repr(state, y),
+            memarg_repr(state, z)
+        ),
     }
 }

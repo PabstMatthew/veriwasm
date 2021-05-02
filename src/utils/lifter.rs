@@ -56,6 +56,7 @@ pub enum MemArgs {
     Mem2Args(MemArg, MemArg), // [arg1 + arg2]
     Mem3Args(MemArg, MemArg, MemArg), // [arg1 + arg2 + arg3]
     MemScale(MemArg, MemArg, MemArg), // [arg1 + arg2 * arg3]
+    MemScaleDisp(MemArg, MemArg, MemArg, MemArg), // [arg1 + arg2 * arg3 + arg4]
 }
 #[derive(Debug, Clone)]
 pub enum MemArg {
@@ -172,8 +173,43 @@ fn convert_operand(op: yaxpeax_x86::long_mode::Operand, memsize: ValSize) -> Val
                 MemArg::Imm(ImmType::Signed, ValSize::Size32, imm as i64),
             ),
         ), //mem[reg1 + reg2 + c]
-        Operand::RegScale(_, _) => panic!("Memory operations with scaling prohibited"), // mem[reg * c]
-        Operand::RegScaleDisp(_, _, _) => panic!("Memory operations with scaling prohibited"), //mem[reg*c1 + c2]
+        Operand::RegScale(reg, scale) => {
+            if scale == 1 {
+                Value::Mem(
+                    memsize,
+                    MemArgs::Mem1Arg(convert_memarg_reg(reg))
+                )
+            } else {
+                Value::Mem(
+                    memsize,
+                    MemArgs::MemScale(
+                        MemArg::Imm(ImmType::Unsigned, ValSize::Size32, 0),
+                        convert_memarg_reg(reg),
+                        MemArg::Imm(ImmType::Unsigned, ValSize::Size32, scale as i64)
+                    )
+                )
+            }
+        }, // mem[reg*scale]
+        Operand::RegScaleDisp(reg, scale, imm) => {
+            if scale == 1 {
+                Value::Mem(
+                    memsize,
+                    MemArgs::Mem2Args(
+                        convert_memarg_reg(reg),
+                        MemArg::Imm(ImmType::Signed, ValSize::Size32, imm as i64)
+                    )
+                )
+            } else {
+                Value::Mem(
+                    memsize,
+                    MemArgs::MemScale(
+                        MemArg::Imm(ImmType::Unsigned, ValSize::Size32, imm as i64),
+                        convert_memarg_reg(reg),
+                        MemArg::Imm(ImmType::Unsigned, ValSize::Size32, scale as i64)
+                    )
+                )
+            }
+        }, //mem[reg*c1 + c2]
         Operand::RegIndexBaseScale(reg1, reg2, scale) =>
         //mem[reg1 + reg2*c]
         {
@@ -194,15 +230,26 @@ fn convert_operand(op: yaxpeax_x86::long_mode::Operand, memsize: ValSize) -> Val
             }
         }
         Operand::RegIndexBaseScaleDisp(reg1, reg2, scale, imm) => {
-            assert_eq!(scale, 1);
-            Value::Mem(
-                memsize,
-                MemArgs::Mem3Args(
-                    convert_memarg_reg(reg1),
-                    convert_memarg_reg(reg2),
-                    MemArg::Imm(ImmType::Signed, ValSize::Size32, imm as i64),
-                ),
-            )
+            if scale == 1 {
+                Value::Mem(
+                    memsize,
+                    MemArgs::Mem3Args(
+                        convert_memarg_reg(reg1),
+                        convert_memarg_reg(reg2),
+                        MemArg::Imm(ImmType::Signed, ValSize::Size32, imm as i64),
+                    ),
+                )
+            } else {
+                Value::Mem(
+                    memsize,
+                    MemArgs::MemScaleDisp(
+                        convert_memarg_reg(reg1),
+                        convert_memarg_reg(reg2),
+                        MemArg::Imm(ImmType::Unsigned, ValSize::Size32, scale as i64),
+                        MemArg::Imm(ImmType::Signed, ValSize::Size32, imm as i64),
+                    ),
+                )
+            }
         } //mem[reg1 + reg2*c1 + c2]
         Operand::Nothing => panic!("Nothing Operand?"),
     }
@@ -342,6 +389,7 @@ fn lea(instr: &yaxpeax_x86::long_mode::Instruction, addr: &u64) -> Vec<Stmt> {
             )];
         }
     }
+
     match convert_operand(src1, get_operand_size(dst).unwrap()) {
         Value::Mem(_, memargs) => match memargs {
             MemArgs::Mem1Arg(arg) => match arg {
@@ -379,6 +427,7 @@ pub fn lift(
         Opcode::AND => {instrs.push(binop(Binopcode::And, instr)); instrs.push(Stmt::Clear(Value::Reg(16, ValSize::Size8), get_sources(instr)))} ,
         Opcode::ADD => {instrs.push(binop(Binopcode::Add, instr)); instrs.push(Stmt::Clear(Value::Reg(16, ValSize::Size8), get_sources(instr)))} ,
         Opcode::SUB => {instrs.push(binop(Binopcode::Sub, instr)); instrs.push(Stmt::Clear(Value::Reg(16, ValSize::Size8), get_sources(instr)))} ,
+        Opcode::SHLX | // SHLX is the same as SHL, but doesn't modify flags
         Opcode::SHL => {instrs.push(binop(Binopcode::Shl, instr)); instrs.push(Stmt::Clear(Value::Reg(16, ValSize::Size8), get_sources(instr)))} ,
 
         Opcode::UD2 => instrs.push(Stmt::Undefined),
@@ -639,8 +688,25 @@ pub fn lift(
         | Opcode::TZCNT
         | Opcode::SBB
         | Opcode::BSR
-        | Opcode::BSF => instrs.extend(clear_dst(instr)),
-        _ => unimplemented!(),
+        | Opcode::BSF 
+
+        // new Wamr instructions
+        | Opcode::SHRX
+        | Opcode::RORX
+        | Opcode::MULX
+        | Opcode::ANDN
+        | Opcode::BT
+        | Opcode::INC 
+        | Opcode::DEC 
+        | Opcode::NEG => instrs.extend(clear_dst(instr)),
+        _ => {
+            if instr.opcode == Opcode::Invalid {
+                println!("invalid instr at addr: {:x}", addr);
+            } else {
+                println!("unimplemented instr: {:?} at addr {:x}", instr, addr);
+            }
+            //unimplemented!()
+        },
     };
     instrs
 }
