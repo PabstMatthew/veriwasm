@@ -5,6 +5,7 @@ use crate::utils::ir_utils::{is_mem_access, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::utils::lifter::{IRMap, MemArg, MemArgs, Stmt, ValSize, Value};
+use crate::utils::utils::Compiler;
 
 pub struct HeapChecker<'a> {
     irmap: &'a IRMap,
@@ -37,14 +38,29 @@ impl Checker<HeapLattice> for HeapChecker<'_> {
 
     fn check_statement(&self, state: &HeapLattice, ir_stmt: &Stmt, _loc_idx: &LocIdx) -> bool {
         match ir_stmt {
-            //1. Check that at each call rdi = HeapBase
+            //1. Check that at each call rdi has the expected value
             Stmt::Call(_) => {
-                match state.regs.rdi.v {
-                    Some(HeapValue::HeapBase) => (),
-                    _ => {
-                        println!("Call failure {:?}", state.stack.get(0, 8));
-                        return false;
-                    }
+                match self.analyzer.metadata.compiler {
+                    Compiler::Lucet => {
+                        // For Lucet, this means rdi points to the HeapBase
+                        match state.regs.rdi.v {
+                            Some(HeapValue::HeapBase) => (),
+                            _ => {
+                                println!("Call failure {:?}", state.stack.get(0, 8));
+                                return false;
+                            }
+                        }
+                    },
+                    Compiler::Wamr => {
+                        // For Wamr, this means rdi points to the current ExecEnv
+                        match state.regs.rdi.v {
+                            Some(HeapValue::WamrExecEnv) => (),
+                            _ => {
+                                println!("Call failure {:?}", state.stack.get(0, 8));
+                                return false;
+                            }
+                        }
+                    },
                 }
             }
             //2. Check that all load and store are safe
@@ -87,30 +103,36 @@ impl Checker<HeapLattice> for HeapChecker<'_> {
 
 impl HeapChecker<'_> {
     fn check_global_access(&self, state: &HeapLattice, access: &Value) -> bool {
-        if let Value::Mem(_, memargs) = access {
-            match memargs {
-                MemArgs::Mem1Arg(MemArg::Reg(regnum, ValSize::Size64)) => {
-                    if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v
-                    {
-                        return true;
+        match self.analyzer.metadata.compiler {
+            Compiler::Lucet => {
+                if let Value::Mem(_, memargs) = access {
+                    match memargs {
+                        MemArgs::Mem1Arg(MemArg::Reg(regnum, ValSize::Size64)) => {
+                            if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v
+                            {
+                                return true;
+                            }
+                        }
+                        MemArgs::Mem2Args(
+                            MemArg::Reg(regnum, ValSize::Size64),
+                            MemArg::Imm(_, _, globals_offset),
+                        ) => {
+                            if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v
+                            {
+                                return *globals_offset <= 4096;
+                            }
+                        }
+                        _ => return false,
                     }
                 }
-                MemArgs::Mem2Args(
-                    MemArg::Reg(regnum, ValSize::Size64),
-                    MemArg::Imm(_, _, globals_offset),
-                ) => {
-                    if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v
-                    {
-                        return *globals_offset <= 4096;
-                    }
-                }
-                _ => return false,
+                false
             }
+            // Wamr global accesses are inside the heap region
+            Compiler::Wamr => return false,
         }
-        false
     }
 
-    fn check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
+    fn lucet_check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
         if let Value::Mem(_, memargs) = access {
             match memargs {
                 // if only arg is heapbase
@@ -166,7 +188,19 @@ impl HeapChecker<'_> {
         false
     }
 
-    fn check_metadata_access(&self, state: &HeapLattice, access: &Value) -> bool {
+    fn wamr_check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
+        // TODO
+        false
+    }
+
+    fn check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
+        match self.analyzer.metadata.compiler {
+            Compiler::Lucet => return self.lucet_check_heap_access(state, access),
+            Compiler::Wamr => return self.wamr_check_heap_access(state, access),
+        }
+    }
+
+    fn lucet_check_metadata_access(&self, state: &HeapLattice, access: &Value) -> bool {
         if let Value::Mem(_size, memargs) = access {
             match memargs{
                 //Case 1: mem[globals_base]
@@ -202,18 +236,37 @@ impl HeapChecker<'_> {
         false
     }
 
-    fn check_jump_table_access(&self, _state: &HeapLattice, access: &Value) -> bool {
-        if let Value::Mem(_size, memargs) = access {
-            match memargs {
-                MemArgs::MemScale(_, _, MemArg::Imm(_, _, 4)) => return true,
-                _ => return false,
-            }
-        }
+    fn wamr_check_metadata_access(&self, state: &HeapLattice, access: &Value) -> bool {
+        // TODO
         false
+    }
+
+    fn check_metadata_access(&self, state: &HeapLattice, access: &Value) -> bool {
+        match self.analyzer.metadata.compiler {
+            Compiler::Lucet => return self.lucet_check_metadata_access(state, access),
+            Compiler::Wamr => return self.wamr_check_metadata_access(state, access),
+        }
+    }
+
+    fn check_jump_table_access(&self, _state: &HeapLattice, access: &Value) -> bool {
+        match self.analyzer.metadata.compiler {
+            Compiler::Lucet => {
+                if let Value::Mem(_size, memargs) = access {
+                    match memargs {
+                        MemArgs::MemScale(_, _, MemArg::Imm(_, _, 4)) => return true,
+                        _ => return false,
+                    }
+                }
+                false
+            },
+            // Wamr doesn't have a jump table
+            Compiler::Wamr => return false,
+        }
     }
 
     fn check_mem_access(&self, state: &HeapLattice, access: &Value) -> bool {
         // Case 1: its a stack access
+        // TODO: modify this function to support Wamr
         if is_stack_access(access) {
             return true;
         }

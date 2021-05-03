@@ -1,10 +1,11 @@
 use crate::analyses::AbstractAnalyzer;
 use crate::utils::ir_utils::{extract_stack_offset, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue, HeapValueLattice};
+use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::lattices::VarState;
 use crate::utils::lifter::{MemArg, MemArgs, ValSize, Value};
-use crate::utils::utils::CompilerMetadata;
+use crate::utils::utils::{CompilerMetadata, Compiler};
 use std::default::Default;
 
 pub struct HeapAnalyzer {
@@ -14,7 +15,10 @@ pub struct HeapAnalyzer {
 impl AbstractAnalyzer<HeapLattice> for HeapAnalyzer {
     fn init_state(&self) -> HeapLattice {
         let mut result: HeapLattice = Default::default();
-        result.regs.rdi = HeapValueLattice::new(HeapValue::HeapBase);
+        match self.metadata.compiler {
+            Compiler::Lucet => result.regs.rdi = HeapValueLattice::new(HeapValue::HeapBase),
+            Compiler::Wamr => result.regs.rdi = HeapValueLattice::new(HeapValue::WamrExecEnv),
+        }
         result
     }
 
@@ -30,7 +34,7 @@ impl AbstractAnalyzer<HeapLattice> for HeapAnalyzer {
     }
 }
 
-pub fn is_globalbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
+pub fn lucet_is_globalbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
     if let MemArgs::Mem2Args(arg1, _arg2) = memargs {
         if let MemArg::Reg(regnum, size) = arg1 {
             assert_eq!(size.to_u32(), 64);
@@ -45,11 +49,79 @@ pub fn is_globalbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
     false
 }
 
+/*
+ * Helper function to check for accesses of the form mem[base_val + offset]
+ */
+fn wamr_access_helper(in_state: &HeapLattice, memargs: &MemArgs, base_val: HeapValue, offset: i64) -> bool {
+    if let MemArgs::Mem2Args(arg1, arg2) = memargs {
+        if let MemArg::Reg(regnum, regsize) = arg1 {
+            if regsize.to_u32() == 64 {
+                let base = in_state.regs.get(regnum, regsize);
+                if let Some(v) = base.v {
+                    if v == base_val {
+                        if let MemArg::Imm(_, _, immval) = arg2 {
+                            if *immval == offset {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/*
+ * Checks if a memory access is to Wamr's AOTModuleInstance pointer within the current ExecEnv.
+ *  The access must be of the form mem[WamrExecEnv + WAMR_MODULEINSTANCE_OFFSET] 
+ *  (see lattices/heaplattice.rs for more details)
+ */
+pub fn wamr_is_moduleinstance_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
+    return wamr_access_helper(in_state, memargs, 
+                       HeapValue::WamrExecEnv, 
+                       WAMR_MODULEINSTANCE_OFFSET);
+}
+
+/*
+ * Checks if a memory access is to Wamr's heap base pointer within the current AOTModuleInstance.
+ *  The access must be of the form mem[WamrModuleInstance + WAMR_HEAPBASE_OFFSET] 
+ *  (see lattices/heaplattice.rs for more details)
+ */
+pub fn wamr_is_heapbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
+    return wamr_access_helper(in_state, memargs, 
+                       HeapValue::WamrModuleInstance, 
+                       WAMR_HEAPBASE_OFFSET);
+}
+
 impl HeapAnalyzer {
     pub fn aeval_unop(&self, in_state: &HeapLattice, value: &Value) -> HeapValueLattice {
+        match self.metadata.compiler {
+            Compiler::Lucet => self.lucet_aeval_unop(in_state, value),
+            Compiler::Wamr => self.wamr_aeval_unop(in_state, value),
+        }
+    }
+
+    fn wamr_aeval_unop(&self, in_state: &HeapLattice, value: &Value) -> HeapValueLattice {
         match value {
             Value::Mem(memsize, memargs) => {
-                if is_globalbase_access(in_state, memargs) {
+                if wamr_is_moduleinstance_access(in_state, memargs) {
+                    return HeapValueLattice::new(HeapValue::WamrModuleInstance);
+                }
+                if wamr_is_heapbase_access(in_state, memargs) {
+                    return HeapValueLattice::new(HeapValue::HeapBase);
+                }
+            },
+            Value::Reg(regnum, size) => {},
+            Value::Imm(_, _, immval) => {},
+        }
+        Default::default()
+    }
+
+    fn lucet_aeval_unop(&self, in_state: &HeapLattice, value: &Value) -> HeapValueLattice {
+        match value {
+            Value::Mem(memsize, memargs) => {
+                if lucet_is_globalbase_access(in_state, memargs) {
                     return HeapValueLattice::new(HeapValue::GlobalsBase);
                 }
                 if is_stack_access(value) {

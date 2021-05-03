@@ -3,11 +3,21 @@ use crate::lattices::{ConstLattice, VariableState};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HeapValue {
     HeapBase,
+    GlobalsBase,
+
+    // Lucet-specific values
     Bounded4GB,
     LucetTables,
     GuestTable0,
-    GlobalsBase,
+
+    // Wamr-specific values
+    WamrExecEnv,        // the value pointed to by %rdi at the beginning of Wamr AOT functions
+    WamrModuleInstance, // Wamr allocates one of these per module, which contains a pointer to linear memory
 }
+
+// Wamr-specific constants
+pub const WAMR_MODULEINSTANCE_OFFSET: i64 = 0x10;   // the offset of the current ModuleInstance w/n a Wamr ExecEnv
+pub const WAMR_HEAPBASE_OFFSET: i64 = 0x150;        // the offset of the linear memory region base w/n a Wamr ModuleInstance
 
 pub type HeapValueLattice = ConstLattice<HeapValue>;
 
