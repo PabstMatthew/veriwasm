@@ -8,7 +8,6 @@ use crate::checkers::heap_checker::check_heap;
 use crate::checkers::stack_checker::check_stack;
 use crate::utils::ir_utils::has_indirect_calls;
 use crate::utils::utils::{fully_resolved_cfg,get_data,get_one_resolved_cfg};
-use std::panic;
 use crate::utils::utils::{Compiler, load_metadata, load_program};
 use yaxpeax_core::analyses::control_flow::check_cfg_integrity;
 
@@ -21,7 +20,9 @@ fn full_test_helper(path: &str) {
     for (addr, _func_name) in func_addrs {
         let (cfg, irmap) = fully_resolved_cfg(&program, &x86_64_data.contexts, &metadata, addr);
         check_cfg_integrity(&cfg.blocks, &cfg.graph);
-        let stack_analyzer = StackAnalyzer {};
+        let stack_analyzer = StackAnalyzer {
+            metadata: metadata.clone(),
+        };
         let stack_result = run_worklist(&cfg, &irmap, &stack_analyzer);
         let stack_safe = check_stack(stack_result, &irmap, &stack_analyzer);
         assert!(stack_safe);
@@ -34,11 +35,11 @@ fn full_test_helper(path: &str) {
         assert!(heap_safe);
         println!("Checking Call Safety");
         if has_indirect_calls(&irmap) {
-            let reaching_defs = analyze_reaching_defs(&cfg, &irmap, metadata.clone());
+            let reaching_defs = analyze_reaching_defs(&cfg, &irmap, &metadata);
             let call_analyzer = CallAnalyzer {
                 metadata: metadata.clone(),
                 reaching_defs: reaching_defs.clone(),
-                reaching_analyzer: ReachingDefnAnalyzer {cfg: cfg.clone(), irmap: irmap.clone()},
+                reaching_analyzer: ReachingDefnAnalyzer {metadata: metadata.clone(), cfg: cfg.clone(), irmap: irmap.clone()},
             };
             let call_result = run_worklist(&cfg, &irmap, &call_analyzer);
             let call_safe = check_calls(call_result, &irmap, &call_analyzer, &valid_funcs, &plt);
@@ -50,15 +51,17 @@ fn full_test_helper(path: &str) {
 
 fn negative_test_helper(path: &str, func_name: &str) {
     let program = load_program(&path);
-    let (x86_64_data, func_addrs, plt) = get_data(&path, &program);
+    let (_x86_64_data, func_addrs, plt) = get_data(&path, &program);
     let valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
     println!("Loading Metadata");
     let metadata = load_metadata(&path, Compiler::Lucet);
-    let ((cfg, irmap),x86_64_data) = get_one_resolved_cfg(path, Compiler::Lucet, func_name);
+    let ((cfg, irmap),_x86_64_data) = get_one_resolved_cfg(path, Compiler::Lucet, func_name);
     println!("Analyzing: {:?}", func_name);
     check_cfg_integrity(&cfg.blocks, &cfg.graph);
     println!("Checking Stack Safety");
-    let stack_analyzer = StackAnalyzer {};
+    let stack_analyzer = StackAnalyzer {
+        metadata: metadata.clone(),
+    };
     let stack_result = run_worklist(&cfg, &irmap, &stack_analyzer);
     let stack_safe = check_stack(stack_result, &irmap, &stack_analyzer);
     assert!(stack_safe);
@@ -71,11 +74,11 @@ fn negative_test_helper(path: &str, func_name: &str) {
     assert!(heap_safe);
     println!("Checking Call Safety");
     if has_indirect_calls(&irmap) {
-        let reaching_defs = analyze_reaching_defs(&cfg, &irmap, metadata.clone());
+        let reaching_defs = analyze_reaching_defs(&cfg, &irmap, &metadata);
         let call_analyzer = CallAnalyzer {
             metadata: metadata.clone(),
             reaching_defs: reaching_defs.clone(),
-            reaching_analyzer: ReachingDefnAnalyzer {cfg: cfg.clone(), irmap: irmap.clone()},
+            reaching_analyzer: ReachingDefnAnalyzer {metadata: metadata.clone(), cfg: cfg.clone(), irmap: irmap.clone()},
         };
         let call_result = run_worklist(&cfg, &irmap, &call_analyzer);
         let call_safe = check_calls(call_result, &irmap, &call_analyzer, &valid_funcs, &plt);

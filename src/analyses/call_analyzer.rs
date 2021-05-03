@@ -9,7 +9,7 @@ use crate::lattices::reachingdefslattice::{LocIdx, ReachLattice};
 use crate::lattices::stacklattice::StackSlot;
 use crate::lattices::VarState;
 use crate::utils::lifter::{Binopcode, IRMap, MemArg, MemArgs, ValSize, Value};
-use crate::utils::utils::CompilerMetadata;
+use crate::utils::utils::{CompilerMetadata, Compiler};
 use std::default::Default;
 
 pub struct CallAnalyzer {
@@ -19,6 +19,10 @@ pub struct CallAnalyzer {
 }
 
 impl AbstractAnalyzer<CallCheckLattice> for CallAnalyzer {
+
+    fn compiler(&self) -> Compiler {
+        self.metadata.compiler
+    }
 
     fn analyze_block(
         &self,

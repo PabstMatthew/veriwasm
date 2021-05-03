@@ -69,7 +69,6 @@ pub fn extract_stack_offset(memargs: &MemArgs) -> i64 {
         MemArgs::Mem2Args(_memarg1, memarg2) => get_imm_mem_offset(memarg2),
         MemArgs::Mem3Args(_memarg1, _memarg2, _memarg3)
         | MemArgs::MemScale(_memarg1, _memarg2, _memarg3) 
-        | MemArgs::MemScale(_memarg1, _memarg2, _memarg3) 
         | MemArgs::MemScaleDisp(_memarg1, _memarg2, _memarg3, _) => panic!("extract_stack_offset failed"),
     }
 }

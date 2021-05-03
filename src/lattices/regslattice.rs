@@ -96,6 +96,26 @@ impl<T: Lattice + Clone> X86RegsLattice<T> {
         self.zf = Default::default();
     }
 
+    pub fn clear_regs_systemv(&mut self) -> () {
+        // Wamr (LLVM) uses a standard calling convention (System V AMD64 ABI), which assumes that 
+        // some registers are preserved by the callee (RBX, RSP, RBP, R12-R15).
+
+        self.rax = Default::default();
+        self.rcx = Default::default();
+        self.rdx = Default::default();
+        self.rsi = Default::default();
+        self.rdi = Default::default();
+
+        self.r8 = Default::default();
+        self.r9 = Default::default();
+        self.r10 = Default::default();
+        self.r11 = Default::default();
+        self.zf = Default::default();
+
+        // As a result, functions need to be checked to ensure that they follow the calling
+        // convention.
+    }
+
     pub fn show(&self) -> () {
         println!("State = ");
         if self.rax != Default::default() {

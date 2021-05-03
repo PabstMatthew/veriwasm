@@ -3,6 +3,7 @@ use crate::analyses::{AbstractAnalyzer, AnalysisResult};
 use crate::checkers::Checker;
 use crate::utils::ir_utils::{is_mem_access, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue};
+use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET, WAMR_EXCEPTION_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::utils::lifter::{IRMap, MemArg, MemArgs, Stmt, ValSize, Value};
 use crate::utils::utils::Compiler;
@@ -56,7 +57,6 @@ impl Checker<HeapLattice> for HeapChecker<'_> {
                         match state.regs.rdi.v {
                             Some(HeapValue::WamrExecEnv) => (),
                             _ => {
-                                println!("Call failure {:?}", state.stack.get(0, 8));
                                 return false;
                             }
                         }
@@ -127,7 +127,8 @@ impl HeapChecker<'_> {
                 }
                 false
             }
-            // Wamr global accesses are inside the heap region
+            // Right now, I'm compiling C to WASM with clang, which doesn't make use of Wasm
+            // global variables. TODO implement this for Wamr
             Compiler::Wamr => return false,
         }
     }
@@ -189,7 +190,30 @@ impl HeapChecker<'_> {
     }
 
     fn wamr_check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
-        // TODO
+        // default Wamr heap size is 16KB
+        // TODO: it would be good to verify this somehow for the current module
+        let wamr_heap_size: u32 = 16 << 10; 
+        if let Value::Mem(size, memargs) = access {
+            match memargs {
+                // if only arg is heapbase
+                MemArgs::Mem1Arg(MemArg::Reg(regnum, ValSize::Size64)) => {
+                    if let Some(HeapValue::HeapBase) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
+                // if arg1 is heapbase and imm is smaller than the size of the heap
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) => {
+                    if let Some(HeapValue::HeapBase) = state.regs.get(regnum, &ValSize::Size64).v {
+                        // account for the number of bytes being accessed
+                        let max_allowed: i64 = (wamr_heap_size - (size.to_u32() >> 3)).into();
+                        if *immval >= 0 && *immval < max_allowed {
+                            return true;
+                        }
+                    }
+                },
+                _ => return false,
+            }
+        }
         false
     }
 
@@ -237,7 +261,29 @@ impl HeapChecker<'_> {
     }
 
     fn wamr_check_metadata_access(&self, state: &HeapLattice, access: &Value) -> bool {
-        // TODO
+        if let Value::Mem(_size, memargs) = access {
+            match memargs {
+                //Case 1: mem[WamrExecEnv+WAMR_MODULEINSTANCE_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_MODULEINSTANCE_OFFSET)) => {
+                    if let Some(HeapValue::WamrExecEnv) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
+                //Case 2: mem[WamrModuleInstance+WAMR_HEAPBASE_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_HEAPBASE_OFFSET)) => {
+                    if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
+                //Case 3: mem[WamrModuleInstance+WAMR_EXCEPTION_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_EXCEPTION_OFFSET)) => {
+                    if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
+                _ => return false,
+            }
+        }
         false
     }
 

@@ -1,5 +1,6 @@
 use crate::lattices::{ConstLattice, VarState};
 use crate::utils::lifter::{Binopcode, Value};
+use crate::utils::utils::Compiler;
 
 pub type StackGrowthLattice = ConstLattice<(i64, i64)>;
 
@@ -14,7 +15,7 @@ impl VarState for StackGrowthLattice {
     fn set_to_bot(&mut self, _index: &Value) -> () {
         unimplemented!()
     }
-    fn on_call(&mut self) -> () {
+    fn on_call(&mut self, _compiler: Compiler) -> () {
         unimplemented!()
     }
     fn adjust_stack_offset(

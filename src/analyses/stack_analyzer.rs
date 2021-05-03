@@ -3,12 +3,19 @@ use crate::utils::ir_utils::{get_imm_offset, is_rsp};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::lattices::stackgrowthlattice::StackGrowthLattice;
 use crate::utils::lifter::{Binopcode, Stmt};
+use crate::utils::utils::{CompilerMetadata, Compiler};
 
-pub struct StackAnalyzer {}
+pub struct StackAnalyzer {
+    pub metadata: CompilerMetadata,
+}
 
 impl AbstractAnalyzer<StackGrowthLattice> for StackAnalyzer {
     fn init_state(&self) -> StackGrowthLattice {
         StackGrowthLattice::new((0, 4096))
+    }
+
+    fn compiler(&self) -> Compiler {
+        self.metadata.compiler
     }
 
     fn aexec(&self, in_state: &mut StackGrowthLattice, ir_instr: &Stmt, _loc_idx: &LocIdx) -> () {

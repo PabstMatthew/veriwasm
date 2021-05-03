@@ -6,6 +6,7 @@ pub mod stack_analyzer;
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::lattices::{Lattice, VarState};
 use crate::utils::lifter::{Binopcode, IRBlock, IRMap, Stmt, Value};
+use crate::utils::utils::Compiler;
 use std::collections::{HashMap, VecDeque};
 use yaxpeax_core::analyses::control_flow::VW_CFG;
 
@@ -54,7 +55,7 @@ pub trait AbstractAnalyzer<State: Lattice + VarState + Clone> {
                 self.aexec_binop(in_state, opcode, dst, src1, src2, loc_idx);
                 in_state.adjust_stack_offset(opcode, dst, src1, src2)
             }
-            Stmt::Call(_) => in_state.on_call(),
+            Stmt::Call(_) => in_state.on_call(self.compiler()),
             _ => (),
         }
     }
@@ -78,6 +79,10 @@ pub trait AbstractAnalyzer<State: Lattice + VarState + Clone> {
             }
         }
         new_state
+    }
+
+    fn compiler(&self) -> Compiler {
+        Compiler::Lucet
     }
 }
 

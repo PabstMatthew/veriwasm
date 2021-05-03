@@ -2,19 +2,20 @@ use crate::analyses::{run_worklist, AbstractAnalyzer, AnalysisResult};
 use crate::lattices::reachingdefslattice::{singleton, LocIdx, ReachLattice, loc};
 use crate::lattices::VarState;
 use crate::utils::lifter::{Binopcode, IRMap, Stmt, Unopcode};
-use crate::utils::utils::CompilerMetadata;
+use crate::utils::utils::{CompilerMetadata, Compiler};
 use yaxpeax_core::analyses::control_flow::VW_CFG;
 
 //Top level function
 pub fn analyze_reaching_defs(
     cfg: &VW_CFG,
     irmap: &IRMap,
-    _metadata: CompilerMetadata,
+    metadata: &CompilerMetadata,
 ) -> AnalysisResult<ReachLattice> {
-    run_worklist(cfg, irmap, &ReachingDefnAnalyzer {cfg: cfg.clone(), irmap: irmap.clone()})
+    run_worklist(cfg, irmap, &ReachingDefnAnalyzer {metadata: metadata.clone(), cfg: cfg.clone(), irmap: irmap.clone()})
 }
 
 pub struct ReachingDefnAnalyzer {
+    pub metadata: CompilerMetadata,
     pub cfg: VW_CFG,
     pub irmap: IRMap,
 }
@@ -96,6 +97,10 @@ impl AbstractAnalyzer<ReachLattice> for ReachingDefnAnalyzer {
         );
 
         s
+    }
+
+    fn compiler(&self) -> Compiler {
+        self.metadata.compiler
     }
 
     fn aexec(&self, in_state: &mut ReachLattice, ir_instr: &Stmt, loc_idx: &LocIdx) -> () {

@@ -5,7 +5,7 @@ use crate::lattices::stacklattice::StackSlot;
 use crate::lattices::switchlattice::{SwitchLattice, SwitchValue, SwitchValueLattice};
 use crate::lattices::VarState;
 use crate::utils::lifter::{Binopcode, IRMap, MemArg, MemArgs, ValSize, Value};
-use crate::utils::utils::{get_rsp_offset, CompilerMetadata};
+use crate::utils::utils::{get_rsp_offset, CompilerMetadata, Compiler};
 use std::default::Default;
 use yaxpeax_core::analyses::control_flow::VW_CFG;
 
@@ -25,6 +25,10 @@ pub struct SwitchAnalyzer {
 }
 
 impl AbstractAnalyzer<SwitchLattice> for SwitchAnalyzer {
+    fn compiler(&self) -> Compiler {
+        self.metadata.compiler
+    }
+
     fn aexec_unop(
         &self,
         in_state: &mut SwitchLattice,

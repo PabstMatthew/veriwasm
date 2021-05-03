@@ -11,6 +11,7 @@ use crate::lattices::reachingdefslattice::LocIdx;
 use crate::lattices::regslattice::X86RegsLattice;
 use crate::lattices::stacklattice::StackLattice;
 use crate::utils::lifter::{Binopcode, MemArg, MemArgs, ValSize, Value};
+use crate::utils::utils::Compiler;
 use std::cmp::Ordering;
 use std::fmt::Debug;
 
@@ -23,7 +24,7 @@ pub trait VarState {
     fn get(&mut self, index: &Value) -> Option<Self::Var>;
     fn set(&mut self, index: &Value, v: Self::Var) -> ();
     fn set_to_bot(&mut self, index: &Value) -> ();
-    fn on_call(&mut self) -> ();
+    fn on_call(&mut self, compiler: Compiler) -> ();
     fn adjust_stack_offset(&mut self, opcode: &Binopcode, dst: &Value, src1: &Value, src2: &Value);
 }
 
@@ -190,8 +191,14 @@ impl<T: Lattice + Clone> VarState for VariableState<T> {
         self.set(index, Default::default())
     }
 
-    fn on_call(&mut self) {
-        self.regs.clear_regs()
+    fn on_call(&mut self, compiler: Compiler) {
+        match compiler {
+            // Lucet doesn't make any assumptions about register state after calls.
+            Compiler::Lucet => self.regs.clear_regs(),
+            // Wamr (LLVM) uses a standard calling convention, which assumes that some registers
+            // are preserved by the callee.
+            Compiler::Wamr => self.regs.clear_regs_systemv(),
+        }
     }
 
     fn adjust_stack_offset(&mut self, opcode: &Binopcode, dst: &Value, src1: &Value, src2: &Value) {

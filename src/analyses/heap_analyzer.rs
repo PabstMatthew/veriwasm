@@ -22,6 +22,10 @@ impl AbstractAnalyzer<HeapLattice> for HeapAnalyzer {
         result
     }
 
+    fn compiler(&self) -> Compiler {
+        self.metadata.compiler
+    }
+
     fn aexec_unop(
         &self,
         in_state: &mut HeapLattice,
@@ -104,7 +108,7 @@ impl HeapAnalyzer {
 
     fn wamr_aeval_unop(&self, in_state: &HeapLattice, value: &Value) -> HeapValueLattice {
         match value {
-            Value::Mem(memsize, memargs) => {
+            Value::Mem(_memsize, memargs) => {
                 if wamr_is_moduleinstance_access(in_state, memargs) {
                     return HeapValueLattice::new(HeapValue::WamrModuleInstance);
                 }
@@ -112,8 +116,8 @@ impl HeapAnalyzer {
                     return HeapValueLattice::new(HeapValue::HeapBase);
                 }
             },
-            Value::Reg(regnum, size) => {},
-            Value::Imm(_, _, immval) => {},
+            Value::Reg(_regnum, _size) => {},
+            Value::Imm(_, _, _immval) => {},
         }
         Default::default()
     }

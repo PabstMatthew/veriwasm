@@ -18,6 +18,7 @@ pub enum HeapValue {
 // Wamr-specific constants
 pub const WAMR_MODULEINSTANCE_OFFSET: i64 = 0x10;   // the offset of the current ModuleInstance w/n a Wamr ExecEnv
 pub const WAMR_HEAPBASE_OFFSET: i64 = 0x150;        // the offset of the linear memory region base w/n a Wamr ModuleInstance
+pub const WAMR_EXCEPTION_OFFSET: i64 = 0x68;        // the offset of the current exception w/n a Wamr ModuleInstance
 
 pub type HeapValueLattice = ConstLattice<HeapValue>;
 
