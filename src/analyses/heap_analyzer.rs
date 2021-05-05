@@ -4,7 +4,7 @@ use crate::lattices::heaplattice::{HeapLattice, HeapValue, HeapValueLattice};
 use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::lattices::VarState;
-use crate::utils::lifter::{MemArg, MemArgs, ValSize, Value};
+use crate::utils::lifter::{MemArg, MemArgs, ValSize, Value, Binopcode};
 use crate::utils::utils::{CompilerMetadata, Compiler};
 use std::default::Default;
 
@@ -43,6 +43,23 @@ impl AbstractAnalyzer<HeapLattice> for HeapAnalyzer {
             }
         }
         in_state.set(dst, v)
+    }
+
+    fn aexec_binop(
+        &self,
+        in_state: &mut HeapLattice,
+        _opcode: &Binopcode,
+        dst: &Value,
+        _src1: &Value,
+        _src2: &Value,
+        _loc_idx: &LocIdx,
+    ) -> () {
+        if let Value::Reg(_, ValSize::Size32) = dst {
+            // in x86, mov'ing to a 32b register clears the upper 32b of the corresponding
+            // 64b register. We need to communicate this state to enable checking of future
+            // accesses that use the 64b register (for Wamr).
+            in_state.set(dst, HeapValueLattice::new(HeapValue::Bounded4GB));
+        }
     }
 }
 

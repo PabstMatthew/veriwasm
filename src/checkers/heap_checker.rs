@@ -159,30 +159,47 @@ impl HeapChecker<'_> {
                 }
                 // if arg1 is heapbase and arg2 and arg3 are bounded ||
                 // if arg1 is bounded and arg1 and arg3 are bounded
-                MemArgs::Mem3Args(MemArg::Reg(regnum, ValSize::Size64), memarg2, memarg3)
-                | MemArgs::Mem3Args(memarg2, MemArg::Reg(regnum, ValSize::Size64), memarg3) => {
-                    if let Some(HeapValue::HeapBase) = state.regs.get(regnum, &ValSize::Size64).v {
-                        match (memarg2, memarg3) {
-                            (MemArg::Reg(regnum2, size2), MemArg::Imm(_, _, v))
-                            | (MemArg::Imm(_, _, v), MemArg::Reg(regnum2, size2)) => {
-                                if let Some(HeapValue::Bounded4GB) =
-                                    state.regs.get(regnum2, size2).v
-                                {
-                                    return *v <= 0xffffffff;
-                                }
-                            }
-                            (MemArg::Reg(regnum2, size2), MemArg::Reg(regnum3, size3)) => {
-                                if let (Some(HeapValue::Bounded4GB), Some(HeapValue::Bounded4GB)) = (
-                                    state.regs.get(regnum2, size2).v,
-                                    state.regs.get(regnum3, size3).v,
-                                ) {
-                                    return true;
-                                }
-                            }
-                            _ => (),
+                MemArgs::Mem3Args(memarg1, memarg2, memarg3) => {
+                    // swizzle the args depending on which register is HeapBase
+                    let mut arg1 = memarg2;
+                    let arg2 = memarg3;
+                    let mut reg: Option<&u8> = None;
+                    if let MemArg::Reg(reg1, ValSize::Size64) = memarg1 {
+                        if let Some(HeapValue::HeapBase) = state.regs.get(reg1, &ValSize::Size64).v {
+                            reg = Some(reg1);
+                        }
+                    } 
+                    if let MemArg::Reg(reg2, ValSize::Size64) = memarg2 {
+                        if let Some(HeapValue::HeapBase) = state.regs.get(reg2, &ValSize::Size64).v {
+                            reg = Some(reg2);
+                            arg1 = memarg1;
                         }
                     }
-                }
+                    // check that the access is bounded
+                    if let Some(regnum) = reg {
+                        if let Some(HeapValue::HeapBase) = state.regs.get(regnum, &ValSize::Size64).v {
+                            match (arg1, arg2) {
+                                (MemArg::Reg(regnum2, size2), MemArg::Imm(_, _, v))
+                                | (MemArg::Imm(_, _, v), MemArg::Reg(regnum2, size2)) => {
+                                    if let Some(HeapValue::Bounded4GB) =
+                                        state.regs.get(regnum2, size2).v
+                                    {
+                                        return *v <= 0xffffffff;
+                                    }
+                                }
+                                (MemArg::Reg(regnum2, size2), MemArg::Reg(regnum3, size3)) => {
+                                    if let (Some(HeapValue::Bounded4GB), Some(HeapValue::Bounded4GB)) = (
+                                        state.regs.get(regnum2, size2).v,
+                                        state.regs.get(regnum3, size3).v,
+                                    ) {
+                                        return true;
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+                    }
+                },
                 _ => return false,
             }
         }
