@@ -116,7 +116,16 @@ impl HeapAnalyzer {
                     return HeapValueLattice::new(HeapValue::HeapBase);
                 }
             },
-            Value::Reg(_regnum, _size) => {},
+            Value::Reg(regnum, size) => {
+                if let ValSize::SizeOther = size {
+                    return Default::default();
+                };
+                if size.to_u32() <= 32 {
+                    return HeapValueLattice::new(HeapValue::Bounded4GB);
+                } else {
+                    return in_state.regs.get(regnum, &ValSize::Size64);
+                }
+            },
             Value::Imm(_, _, _immval) => {},
         }
         Default::default()

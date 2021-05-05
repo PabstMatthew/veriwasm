@@ -390,11 +390,20 @@ fn lea(instr: &yaxpeax_x86::long_mode::Instruction, addr: &u64) -> Vec<Stmt> {
         }
     }
 
-    match convert_operand(src1, get_operand_size(dst).unwrap()) {
+    match convert_operand(src1, get_operand_size(dst.clone()).unwrap()) {
         Value::Mem(_, memargs) => match memargs {
-            MemArgs::Mem1Arg(arg) => match arg {
-                MemArg::Imm(_, _, _val) => vec![unop(Unopcode::Mov, instr)],
-                _ => clear_dst(instr),
+            // an LEA of the form "lea [imm], dst"
+            MemArgs::Mem1Arg(_) => vec![unop(Unopcode::Mov, instr)],
+            // an LEA of the form "lea [reg+imm], dst"
+            MemArgs::Mem2Args(arg1, arg2) => {
+                if let MemArg::Reg(regnum, regsize) = arg1 {
+                    if let MemArg::Imm(immtype, immsize, immval) = arg2 {
+                        return vec![Stmt::Binop(Binopcode::Add, convert_operand(dst, ValSize::SizeOther), 
+                                           Value::Reg(regnum, regsize), 
+                                           Value::Imm(immtype, immsize, immval))];
+                    }
+                }
+                return clear_dst(instr);
             },
             _ => clear_dst(instr),
         },
@@ -427,7 +436,8 @@ pub fn lift(
         Opcode::AND => {instrs.push(binop(Binopcode::And, instr)); instrs.push(Stmt::Clear(Value::Reg(16, ValSize::Size8), get_sources(instr)))} ,
         Opcode::ADD => {instrs.push(binop(Binopcode::Add, instr)); instrs.push(Stmt::Clear(Value::Reg(16, ValSize::Size8), get_sources(instr)))} ,
         Opcode::SUB => {instrs.push(binop(Binopcode::Sub, instr)); instrs.push(Stmt::Clear(Value::Reg(16, ValSize::Size8), get_sources(instr)))} ,
-        Opcode::SHLX | // SHLX is the same as SHL, but doesn't modify flags
+        // SHLX is the same as SHL, but doesn't modify flags
+        Opcode::SHLX => instrs.push(binop(Binopcode::Shl, instr)),
         Opcode::SHL => {instrs.push(binop(Binopcode::Shl, instr)); instrs.push(Stmt::Clear(Value::Reg(16, ValSize::Size8), get_sources(instr)))} ,
 
         Opcode::UD2 => instrs.push(Stmt::Undefined),

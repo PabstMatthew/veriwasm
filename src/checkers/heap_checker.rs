@@ -133,7 +133,7 @@ impl HeapChecker<'_> {
         }
     }
 
-    fn lucet_check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
+    fn check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
         if let Value::Mem(_, memargs) = access {
             match memargs {
                 // if only arg is heapbase
@@ -187,41 +187,6 @@ impl HeapChecker<'_> {
             }
         }
         false
-    }
-
-    fn wamr_check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
-        // default Wamr heap size is 16KB
-        // TODO: it would be good to verify this somehow for the current module
-        let wamr_heap_size: u32 = 16 << 10; 
-        if let Value::Mem(size, memargs) = access {
-            match memargs {
-                // if only arg is heapbase
-                MemArgs::Mem1Arg(MemArg::Reg(regnum, ValSize::Size64)) => {
-                    if let Some(HeapValue::HeapBase) = state.regs.get(regnum, &ValSize::Size64).v {
-                        return true;
-                    }
-                },
-                // if arg1 is heapbase and imm is smaller than the size of the heap
-                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) => {
-                    if let Some(HeapValue::HeapBase) = state.regs.get(regnum, &ValSize::Size64).v {
-                        // account for the number of bytes being accessed
-                        let max_allowed: i64 = (wamr_heap_size - (size.to_u32() >> 3)).into();
-                        if *immval >= 0 && *immval < max_allowed {
-                            return true;
-                        }
-                    }
-                },
-                _ => return false,
-            }
-        }
-        false
-    }
-
-    fn check_heap_access(&self, state: &HeapLattice, access: &Value) -> bool {
-        match self.analyzer.metadata.compiler {
-            Compiler::Lucet => return self.lucet_check_heap_access(state, access),
-            Compiler::Wamr => return self.wamr_check_heap_access(state, access),
-        }
     }
 
     fn lucet_check_metadata_access(&self, state: &HeapLattice, access: &Value) -> bool {
