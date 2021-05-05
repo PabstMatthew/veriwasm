@@ -4,9 +4,9 @@ use crate::lattices::{ConstLattice, VariableState};
 pub enum HeapValue {
     HeapBase,
     GlobalsBase,
+    Bounded4GB,
 
     // Lucet-specific values
-    Bounded4GB,
     LucetTables,
     GuestTable0,
 

@@ -33,7 +33,15 @@ impl AbstractAnalyzer<HeapLattice> for HeapAnalyzer {
         src: &Value,
         _loc_idx: &LocIdx,
     ) -> () {
-        let v = self.aeval_unop(in_state, src);
+        let mut v: HeapValueLattice = self.aeval_unop(in_state, src);
+        if v == HeapValueLattice::default() {
+            if let Value::Reg(_, ValSize::Size32) = dst {
+                // in x86, mov'ing to a 32b register clears the upper 32b of the corresponding
+                // 64b register. We need to communicate this state to enable checking of future
+                // accesses that use the 64b register (for Wamr).
+                v = HeapValueLattice::new(HeapValue::Bounded4GB);
+            }
+        }
         in_state.set(dst, v)
     }
 }
@@ -99,14 +107,14 @@ pub fn wamr_is_heapbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> boo
 }
 
 impl HeapAnalyzer {
-    pub fn aeval_unop(&self, in_state: &HeapLattice, value: &Value) -> HeapValueLattice {
+    pub fn aeval_unop(&self, in_state: &mut HeapLattice, value: &Value) -> HeapValueLattice {
         match self.metadata.compiler {
             Compiler::Lucet => self.lucet_aeval_unop(in_state, value),
             Compiler::Wamr => self.wamr_aeval_unop(in_state, value),
         }
     }
 
-    fn wamr_aeval_unop(&self, in_state: &HeapLattice, value: &Value) -> HeapValueLattice {
+    fn wamr_aeval_unop(&self, in_state: &mut HeapLattice, value: &Value) -> HeapValueLattice {
         match value {
             Value::Mem(_memsize, memargs) => {
                 if wamr_is_moduleinstance_access(in_state, memargs) {
@@ -131,7 +139,7 @@ impl HeapAnalyzer {
         Default::default()
     }
 
-    fn lucet_aeval_unop(&self, in_state: &HeapLattice, value: &Value) -> HeapValueLattice {
+    fn lucet_aeval_unop(&self, in_state: &mut HeapLattice, value: &Value) -> HeapValueLattice {
         match value {
             Value::Mem(memsize, memargs) => {
                 if lucet_is_globalbase_access(in_state, memargs) {
