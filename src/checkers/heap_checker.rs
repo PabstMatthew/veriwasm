@@ -3,7 +3,7 @@ use crate::analyses::{AbstractAnalyzer, AnalysisResult};
 use crate::checkers::Checker;
 use crate::utils::ir_utils::{is_mem_access, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue};
-use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET, WAMR_EXCEPTION_OFFSET};
+use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET, WAMR_EXCEPTION_OFFSET, WAMR_MEMBOUNDS_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::utils::lifter::{IRMap, MemArg, MemArgs, Stmt, ValSize, Value};
 use crate::utils::utils::Compiler;
@@ -277,6 +277,12 @@ impl HeapChecker<'_> {
                 },
                 //Case 3: mem[WamrModuleInstance+WAMR_EXCEPTION_OFFSET]
                 MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_EXCEPTION_OFFSET)) => {
+                    if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
+                //Case 3: mem[WamrModuleInstance+WAMR_MEMBOUNDS_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_MEMBOUNDS_OFFSET)) => {
                     if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
                         return true;
                     }
