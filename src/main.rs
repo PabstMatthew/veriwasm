@@ -17,6 +17,7 @@ use serde_json;
 use std::fs;
 use std::panic;
 use std::time::Instant;
+use std::str::FromStr;
 use utils::utils::{load_metadata, load_program};
 use yaxpeax_core::analyses::control_flow::check_cfg_integrity;
 
@@ -27,6 +28,7 @@ pub struct Config {
     has_output: bool,
     _quiet: bool,
     compiler: Compiler,
+    funcs: Vec<u32>,
 }
 
 fn run(config: Config) {
@@ -36,7 +38,7 @@ fn run(config: Config) {
 
     println!("Loading Metadata");
     let metadata = load_metadata(&config.module_path, config.compiler);
-    let (x86_64_data, func_addrs, plt) = get_data(&config.module_path, &program);
+    let (x86_64_data, func_addrs, plt) = get_data(&config.module_path, &program, &config.funcs);
     let valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
     for (addr, func_name) in func_addrs {
         println!("Generating CFG for {:?}", func_name);
@@ -162,6 +164,12 @@ fn main() {
                 .long("wamr")
                 .help("Enables parsing and analysis of Wasm Micro Runtime binaries (WAMR)")
         )
+        .arg(
+            Arg::with_name("functions")
+                .short("f")
+                .takes_value(true)
+                .help("Comma-separated list of function numbers to validate (WAMR-only)"),
+        )
         .get_matches();
 
     let module_path = matches.value_of("module path").unwrap();
@@ -173,10 +181,17 @@ fn main() {
     let quiet = matches.is_present("quiet");
     let wamr = matches.is_present("wamr");
     let compiler: Compiler;
+    let funcs: Vec<u32>;
     if wamr {
         compiler = Compiler::Wamr;
+        if let Some(func_str) = matches.value_of("functions") {
+            funcs = func_str.split(",").map(|s| u32::from_str(s).unwrap()).collect();
+        } else {
+            funcs = vec![];
+        }
     } else {
         compiler = Compiler::Lucet;
+        funcs = vec![];
     }
 
     let has_output = if output_path == "" { false } else { true };
@@ -188,6 +203,7 @@ fn main() {
         has_output: has_output,
         _quiet: quiet,
         compiler: compiler,
+        funcs: funcs,
     };
 
     run(config);

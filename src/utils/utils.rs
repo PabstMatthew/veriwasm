@@ -6,6 +6,7 @@ use crate::checkers::jump_resolver::resolve_jumps;
 use crate::utils::ir_utils::has_indirect_jumps;
 use crate::utils::lifter::{MemArg, MemArgs, IRMap, lift_cfg};
 use std::path::Path;
+use std::str::FromStr;
 use yaxpeax_arch::Arch;
 use yaxpeax_core::analyses::control_flow::{get_cfg, VW_CFG};
 use yaxpeax_core::arch::x86_64::x86_64Data;
@@ -154,6 +155,7 @@ pub fn fully_resolved_cfg(
 pub fn get_data(
     binpath: &str,
     program: &ModuleData,
+    funcs: &Vec<u32>,
 ) -> (x86_64Data, Vec<(u64, std::string::String)>, (u64,u64)) {
     let (_, sections, entrypoint, imports, exports, symbols) =
         match (program as &dyn MemoryRepr<<AMD64 as Arch>::Address>).module_info() {
@@ -192,7 +194,7 @@ pub fn get_data(
             continue;
         }
         if let Some(symbol) = x86_64_data.symbol_for(addr) {
-            if is_valid_func_name(&symbol.1) {
+            if is_valid_func_name(&symbol.1, funcs) {
                 addrs.push((addr, symbol.1.clone()));
             }
             else{println!("Symbol = 0x{:x} {:?}", addr, symbol.1);}
@@ -225,7 +227,6 @@ pub fn get_one_resolved_cfg(binpath: &str, compiler: Compiler, func: &str) -> ((
     let text_section_idx = sections.iter().position(|x| x.name == ".text").unwrap();
     let x86_64_data = get_function_starts(entrypoint, symbols, imports, exports, text_section_idx);
     let addr = get_symbol_addr(symbols, func).unwrap();
-    assert!(is_valid_func_name(&String::from(func)));
     println!("Generating CFG for: {:?}", func);
     return (fully_resolved_cfg(&program, &x86_64_data.contexts, &metadata, addr),x86_64_data);
 }
@@ -318,7 +319,20 @@ pub fn get_rsp_offset(memargs: &MemArgs) -> Option<i64> {
 // func name is valid if:
 // a. starts with guest_func_ and ends in a number (Lucet-specific)
 // b. starts with aot_func# (Wamr-specific)
-pub fn is_valid_func_name(name: &String) -> bool {
-    return name.starts_with("guest_func_") ||
-           name.starts_with("aot_func#");
+pub fn is_valid_func_name(name: &String, funcs: &Vec<u32>) -> bool {
+    if name.starts_with("guest_func_") {
+        return true;
+    }
+    if name.starts_with("aot_func#") {
+        if funcs.len() == 0 {
+            return true;
+        }
+        let func_num_str = &name[9..];
+        if let Ok(func_num) = u32::from_str(&func_num_str) {
+            if funcs.contains(&func_num) {
+                return true;
+            }
+        }
+    }
+    false
 }
