@@ -10,6 +10,19 @@ pub fn is_rsp(v: &Value) -> bool {
     }
 }
 
+pub fn is_callee_saved_reg(v: &Value) -> bool {
+    match v {
+        Value::Reg(regnum, _size) => {
+            match regnum {
+                // RBX, RBP, R12-R15 (RSP is excluded from this, because it is checked separately)
+                3 | 5 | 12 | 13 | 14 | 15 => return true,
+                _ => return false,
+            }
+        },
+        _ => return false,
+    }
+}
+
 pub fn is_zf(v: &Value) -> bool {
     match v {
         Value::Reg(16, _) => return true,

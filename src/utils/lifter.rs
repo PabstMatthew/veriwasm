@@ -1,4 +1,4 @@
-use crate::utils::utils::CompilerMetadata;
+use crate::utils::utils::{CompilerMetadata, Compiler};
 use std::collections::HashMap;
 use yaxpeax_arch::Arch;
 use yaxpeax_core::analyses::control_flow::VW_CFG;
@@ -729,6 +729,10 @@ fn is_probestack(
     addr: &u64,
     metadata: &CompilerMetadata,
 ) -> bool {
+    if let Compiler::Lucet = metadata.compiler {
+        // only Lucet has probestack calls, so let's be safe here
+        return false;
+    }
     if let Opcode::CALL = instr.opcode {
         if let Value::Imm(_, _, offset) = convert_operand(instr.operand(0), ValSize::SizeOther) {
             // 5 = size of call instruction

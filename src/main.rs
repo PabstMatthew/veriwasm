@@ -12,13 +12,13 @@ use crate::checkers::heap_checker::check_heap;
 use crate::checkers::stack_checker::check_stack;
 use crate::utils::ir_utils::has_indirect_calls;
 use crate::utils::utils::{Compiler,fully_resolved_cfg,get_data};
+use utils::utils::{load_metadata, load_program};
 use clap::{App, Arg};
 use serde_json;
 use std::fs;
 use std::panic;
 use std::time::Instant;
 use std::str::FromStr;
-use utils::utils::{load_metadata, load_program};
 use yaxpeax_core::analyses::control_flow::check_cfg_integrity;
 
 pub struct Config {

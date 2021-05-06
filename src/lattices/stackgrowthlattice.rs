@@ -1,8 +1,9 @@
 use crate::lattices::{ConstLattice, VarState};
 use crate::utils::lifter::{Binopcode, Value};
 use crate::utils::utils::Compiler;
+use std::collections::HashMap;
 
-pub type StackGrowthLattice = ConstLattice<(i64, i64)>;
+pub type StackGrowthLattice = ConstLattice<(i64, i64, HashMap<u8, i64>)>;
 
 impl VarState for StackGrowthLattice {
     type Var = i64;
@@ -32,15 +33,22 @@ impl VarState for StackGrowthLattice {
 impl StackGrowthLattice {
     pub fn get_stackgrowth(&self) -> Option<i64> {
         match self.v {
-            Some((stackgrowth, _)) => Some(stackgrowth),
+            Some((stackgrowth, _, _)) => Some(stackgrowth),
             None => None,
         }
     }
 
     pub fn get_probestack(&self) -> Option<i64> {
         match self.v {
-            Some((_, probestack)) => Some(probestack),
+            Some((_, probestack, _)) => Some(probestack),
             None => None,
+        }
+    }
+
+    pub fn clear(&mut self) -> () {
+        match self.v {
+            Some(_) => self.v = Some((0, 4096, HashMap::new())),
+            None => {},
         }
     }
 }
