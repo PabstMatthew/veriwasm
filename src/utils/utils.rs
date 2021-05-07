@@ -324,15 +324,13 @@ pub fn is_valid_func_name(name: &String, funcs: &Vec<u32>) -> bool {
         return true;
     }
     if name.starts_with("aot_func#") {
-        if funcs.len() == 0 {
-            return true;
-        }
         let func_num_str = &name[9..];
         if let Ok(func_num) = u32::from_str(&func_num_str) {
             if funcs.contains(&func_num) {
-                return true;
+                return false;
             }
         }
+        return true;
     }
     false
 }

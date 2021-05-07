@@ -166,10 +166,10 @@ fn main() {
                 .help("Enables parsing and analysis of Wasm Micro Runtime binaries (WAMR)")
         )
         .arg(
-            Arg::with_name("functions")
-                .short("f")
+            Arg::with_name("trusted")
+                .short("t")
                 .takes_value(true)
-                .help("Comma-separated list of function numbers to validate (WAMR-only)"),
+                .help("Comma-separated list of function numbers to trust (WAMR-only)"),
         )
         .get_matches();
 
@@ -185,7 +185,7 @@ fn main() {
     let funcs: Vec<u32>;
     if wamr {
         compiler = Compiler::Wamr;
-        if let Some(func_str) = matches.value_of("functions") {
+        if let Some(func_str) = matches.value_of("trusted") {
             funcs = func_str.split(",").map(|s| u32::from_str(s).unwrap()).collect();
         } else {
             funcs = vec![];
