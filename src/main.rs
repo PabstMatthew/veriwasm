@@ -29,6 +29,7 @@ pub struct Config {
     _quiet: bool,
     compiler: Compiler,
     funcs: Vec<u32>,
+    globals_size: i64,
 }
 
 fn run(config: Config) {
@@ -37,13 +38,13 @@ fn run(config: Config) {
     let program = load_program(&config.module_path);
 
     println!("Loading Metadata");
-    let metadata = load_metadata(&config.module_path, config.compiler);
+    let metadata = load_metadata(&config.module_path, config.compiler, config.globals_size);
     let (x86_64_data, func_addrs, plt) = get_data(&config.module_path, &program, &config.funcs);
     let valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
-    for (addr, func_name) in func_addrs {
+    for (addr, func_name) in &func_addrs {
         println!("Generating CFG for {:?}", func_name);
         let start = Instant::now();
-        let (cfg, irmap) = fully_resolved_cfg(&program, &x86_64_data.contexts, &metadata, addr);
+        let (cfg, irmap) = fully_resolved_cfg(&program, &x86_64_data.contexts, &metadata, *addr);
         func_counter += 1;
         println!("Analyzing: {:?}", func_name);
         check_cfg_integrity(&cfg.blocks, &cfg.graph);
@@ -54,7 +55,7 @@ fn run(config: Config) {
             metadata: metadata.clone(),
         };
         let heap_result = run_worklist(&cfg, &irmap, &heap_analyzer);
-        let heap_safe = check_heap(heap_result, &irmap, &heap_analyzer);
+        let heap_safe = check_heap(heap_result, &irmap, &heap_analyzer, &func_addrs);
         if !heap_safe {
             panic!("Not Heap Safe");
         }
@@ -171,6 +172,12 @@ fn main() {
                 .takes_value(true)
                 .help("Comma-separated list of function numbers to trust (WAMR-only)"),
         )
+        .arg(
+            Arg::with_name("globals")
+                .short("g")
+                .takes_value(true)
+                .help("Size of global data in memory (WAMR-only)"),
+        )
         .get_matches();
 
     let module_path = matches.value_of("module path").unwrap();
@@ -194,6 +201,10 @@ fn main() {
         compiler = Compiler::Lucet;
         funcs = vec![];
     }
+    let globals_size_opt = matches.value_of("globals");
+    let globals_size = globals_size_opt
+        .map(|s| s.parse::<i64>().unwrap_or(-1))
+        .unwrap_or(-1);
 
     let has_output = if output_path == "" { false } else { true };
 
@@ -205,6 +216,7 @@ fn main() {
         _quiet: quiet,
         compiler: compiler,
         funcs: funcs,
+        globals_size: globals_size,
     };
 
     run(config);

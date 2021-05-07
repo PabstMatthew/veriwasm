@@ -1,7 +1,7 @@
 use crate::analyses::AbstractAnalyzer;
 use crate::utils::ir_utils::{extract_stack_offset, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue, HeapValueLattice};
-use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET};
+use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET, WAMR_GLOBALSBASE_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::lattices::VarState;
 use crate::utils::lifter::{MemArg, MemArgs, ValSize, Value, Binopcode};
@@ -123,6 +123,17 @@ pub fn wamr_is_heapbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> boo
                        WAMR_HEAPBASE_OFFSET);
 }
 
+/*
+ * Checks if a memory access is to Wamr's global base pointer within the current AOTModuleInstance.
+ *  The access must be of the form mem[WamrModuleInstance + WAMR_GLOBALSBASE_OFFSET] 
+ *  (see lattices/heaplattice.rs for more details)
+ */
+pub fn wamr_is_globalbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
+    return wamr_access_helper(in_state, memargs, 
+                       HeapValue::WamrExecEnv, 
+                       WAMR_GLOBALSBASE_OFFSET);
+}
+
 impl HeapAnalyzer {
     pub fn aeval_unop(&self, in_state: &mut HeapLattice, value: &Value) -> HeapValueLattice {
         match self.metadata.compiler {
@@ -139,6 +150,9 @@ impl HeapAnalyzer {
                 }
                 if wamr_is_heapbase_access(in_state, memargs) {
                     return HeapValueLattice::new(HeapValue::HeapBase);
+                }
+                if wamr_is_globalbase_access(in_state, memargs) {
+                    return HeapValueLattice::new(HeapValue::GlobalsBase);
                 }
             },
             Value::Reg(regnum, size) => {

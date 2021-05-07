@@ -3,7 +3,9 @@ use crate::analyses::{AbstractAnalyzer, AnalysisResult};
 use crate::checkers::Checker;
 use crate::utils::ir_utils::{is_mem_access, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue};
-use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET, WAMR_EXCEPTION_OFFSET, WAMR_MEMBOUNDS_OFFSET};
+use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, 
+                                   WAMR_HEAPBASE_OFFSET, WAMR_EXCEPTION_OFFSET, WAMR_MEMBOUNDS_OFFSET, 
+                                   WAMR_GLOBALSBASE_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::utils::lifter::{IRMap, MemArg, MemArgs, Stmt, ValSize, Value};
 use crate::utils::utils::Compiler;
@@ -11,16 +13,19 @@ use crate::utils::utils::Compiler;
 pub struct HeapChecker<'a> {
     irmap: &'a IRMap,
     analyzer: &'a HeapAnalyzer,
+    func_addrs: &'a Vec<(u64, std::string::String)>,
 }
 
 pub fn check_heap(
     result: AnalysisResult<HeapLattice>,
     irmap: &IRMap,
     analyzer: &HeapAnalyzer,
+    func_addrs: &Vec<(u64, std::string::String)>,
 ) -> bool {
     HeapChecker {
         irmap: irmap,
         analyzer: analyzer,
+        func_addrs: func_addrs,
     }
     .check(result)
 }
@@ -40,7 +45,7 @@ impl Checker<HeapLattice> for HeapChecker<'_> {
     fn check_statement(&self, state: &HeapLattice, ir_stmt: &Stmt, _loc_idx: &LocIdx) -> bool {
         match ir_stmt {
             //1. Check that at each call rdi has the expected value
-            Stmt::Call(_) => {
+            Stmt::Call(target) => {
                 match self.analyzer.metadata.compiler {
                     Compiler::Lucet => {
                         // For Lucet, this means rdi points to the HeapBase
@@ -57,7 +62,19 @@ impl Checker<HeapLattice> for HeapChecker<'_> {
                         match state.regs.rdi.v {
                             Some(HeapValue::WamrExecEnv) => (),
                             _ => {
-                                return false;
+                                if let Value::Imm(_, _, addr) = target {
+                                    // handle the exception of calling trusted functions like
+                                    // aot_invoke_native and aot_enlarge_memory
+                                    for (a, _) in self.func_addrs {
+                                        if (*addr as u64) == *a {
+                                            println!("Called aot function without correct value in %rdi!");
+                                            return false;
+                                        }
+                                    }
+                                } else {
+                                    println!("Invalid call instruction: {:?}", ir_stmt);
+                                    return false;
+                                }
                             }
                         }
                     },
@@ -103,7 +120,7 @@ impl Checker<HeapLattice> for HeapChecker<'_> {
 
 impl HeapChecker<'_> {
     fn check_global_access(&self, state: &HeapLattice, access: &Value) -> bool {
-        match self.analyzer.metadata.compiler {
+        match self.analyzer.compiler() {
             Compiler::Lucet => {
                 if let Value::Mem(_, memargs) = access {
                     match memargs {
@@ -127,9 +144,29 @@ impl HeapChecker<'_> {
                 }
                 false
             }
-            // Right now, I'm compiling C to WASM with clang, which doesn't make use of Wasm
-            // global variables. TODO implement this for Wamr
-            Compiler::Wamr => return false,
+            Compiler::Wamr => {
+                if let Value::Mem(memsize, memargs) = access {
+                    match memargs {
+                        MemArgs::Mem1Arg(MemArg::Reg(regnum, ValSize::Size64)) => {
+                            // accessing the base global variable memory
+                            if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v {
+                                return ((memsize.to_u32()/8) as i64) <= self.analyzer.metadata.globals_size;
+                            }
+                        },
+                        MemArgs::Mem2Args(
+                            MemArg::Reg(regnum, ValSize::Size64),
+                            MemArg::Imm(_, _, globals_offset),
+                        ) => {
+                            // accessing an offset from global variable memory
+                            if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v {
+                                return (*globals_offset+((memsize.to_u32()/8) as i64)) <= self.analyzer.metadata.globals_size;
+                            }
+                        },
+                        _ => return false,
+                    }
+                }
+                false
+            },
         }
     }
 
@@ -263,9 +300,15 @@ impl HeapChecker<'_> {
                         return true;
                     }
                 },
-                //Case 3: mem[WamrModuleInstance+WAMR_MEMBOUNDS_OFFSET]
+                //Case 4: mem[WamrModuleInstance+WAMR_MEMBOUNDS_OFFSET]
                 MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_MEMBOUNDS_OFFSET)) => {
                     if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
+                //Case 5: mem[WamrExecEnv+WAMR_GLOBALSBASE_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_GLOBALSBASE_OFFSET)) => {
+                    if let Some(HeapValue::WamrExecEnv) = state.regs.get(regnum, &ValSize::Size64).v {
                         return true;
                     }
                 },
@@ -300,7 +343,6 @@ impl HeapChecker<'_> {
 
     fn check_mem_access(&self, state: &HeapLattice, access: &Value) -> bool {
         // Case 1: its a stack access
-        // TODO: modify this function to support Wamr
         if is_stack_access(access) {
             return true;
         }

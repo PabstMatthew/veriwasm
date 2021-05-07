@@ -205,7 +205,7 @@ pub fn get_data(
 
 pub fn get_one_resolved_cfg(binpath: &str, compiler: Compiler, func: &str) -> ((VW_CFG, IRMap),x86_64Data) {
     let program = load_program(binpath);
-    let metadata = load_metadata(binpath, compiler);
+    let metadata = load_metadata(binpath, compiler, -1);
 
     // grab some details from the binary and panic if it's not what we expected
     let (_, sections, entrypoint, imports, exports, symbols) =
@@ -244,12 +244,17 @@ fn get_symbol_addr(symbols: &Vec<ELFSymbol>, name: &str) -> std::option::Option<
 #[derive(Clone)]
 pub struct CompilerMetadata {
     pub compiler: Compiler,
+
+    // Lucet specific
     pub guest_table_0: u64,
     pub lucet_tables: u64,
     pub lucet_probestack: u64,
+
+    // Wamr specific
+    pub globals_size: i64,
 }
 
-pub fn load_metadata(binpath: &str, compiler: Compiler) -> CompilerMetadata {
+pub fn load_metadata(binpath: &str, compiler: Compiler, globals_size: i64) -> CompilerMetadata {
     let program = load_program(binpath);
 
     // grab some details from the binary and panic if it's not what we expected
@@ -289,6 +294,7 @@ pub fn load_metadata(binpath: &str, compiler: Compiler) -> CompilerMetadata {
         guest_table_0: guest_table_0,
         lucet_tables: lucet_tables,
         lucet_probestack: lucet_probestack,
+        globals_size: globals_size,
     }
 }
 

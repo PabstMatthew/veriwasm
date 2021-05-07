@@ -14,11 +14,11 @@ use yaxpeax_core::analyses::control_flow::check_cfg_integrity;
 fn full_test_helper(path: &str) {
     let program = load_program(&path);
     println!("Loading Metadata");
-    let metadata = load_metadata(&path, Compiler::Lucet);
+    let metadata = load_metadata(&path, Compiler::Lucet, -1);
     let (x86_64_data, func_addrs, plt) = get_data(&path, &program, &vec![]);
     let valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
-    for (addr, _func_name) in func_addrs {
-        let (cfg, irmap) = fully_resolved_cfg(&program, &x86_64_data.contexts, &metadata, addr);
+    for (addr, _func_name) in &func_addrs {
+        let (cfg, irmap) = fully_resolved_cfg(&program, &x86_64_data.contexts, &metadata, *addr);
         check_cfg_integrity(&cfg.blocks, &cfg.graph);
         let stack_analyzer = StackAnalyzer {
             metadata: metadata.clone(),
@@ -31,7 +31,7 @@ fn full_test_helper(path: &str) {
             metadata: metadata.clone(),
         };
         let heap_result = run_worklist(&cfg, &irmap, &heap_analyzer);
-        let heap_safe = check_heap(heap_result, &irmap, &heap_analyzer);
+        let heap_safe = check_heap(heap_result, &irmap, &heap_analyzer, &func_addrs);
         assert!(heap_safe);
         println!("Checking Call Safety");
         if has_indirect_calls(&irmap) {
@@ -54,7 +54,7 @@ fn negative_test_helper(path: &str, func_name: &str) {
     let (_x86_64_data, func_addrs, plt) = get_data(&path, &program, &vec![]);
     let valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
     println!("Loading Metadata");
-    let metadata = load_metadata(&path, Compiler::Lucet);
+    let metadata = load_metadata(&path, Compiler::Lucet, -1);
     let ((cfg, irmap),_x86_64_data) = get_one_resolved_cfg(path, Compiler::Lucet, func_name);
     println!("Analyzing: {:?}", func_name);
     check_cfg_integrity(&cfg.blocks, &cfg.graph);
@@ -70,7 +70,7 @@ fn negative_test_helper(path: &str, func_name: &str) {
         metadata: metadata.clone(),
     };
     let heap_result = run_worklist(&cfg, &irmap, &heap_analyzer);
-    let heap_safe = check_heap(heap_result, &irmap, &heap_analyzer);
+    let heap_safe = check_heap(heap_result, &irmap, &heap_analyzer, &func_addrs);
     assert!(heap_safe);
     println!("Checking Call Safety");
     if has_indirect_calls(&irmap) {

@@ -20,6 +20,7 @@ pub const WAMR_MODULEINSTANCE_OFFSET: i64 = 0x10;   // the offset of the current
 pub const WAMR_HEAPBASE_OFFSET: i64 = 0x150;        // the offset of the linear memory region base w/n a Wamr ModuleInstance
 pub const WAMR_EXCEPTION_OFFSET: i64 = 0x68;        // the offset of the current exception w/n a Wamr ModuleInstance
 pub const WAMR_MEMBOUNDS_OFFSET: i64 = 0x1a0;       // the offset of the memory bound w/n a Wamr ModuleInstance
+pub const WAMR_GLOBALSBASE_OFFSET: i64 = 0x18;      // the offset of the global memory region base w/n a Wamr ModuleInstance
 
 pub type HeapValueLattice = ConstLattice<HeapValue>;
 
