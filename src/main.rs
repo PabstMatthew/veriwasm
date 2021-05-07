@@ -59,6 +59,7 @@ fn run(config: Config) {
             panic!("Not Heap Safe");
         }
 
+        println!("Checking Stack Safety");
         let stack_start = Instant::now();
         let stack_analyzer = StackAnalyzer { 
             metadata: metadata.clone(),

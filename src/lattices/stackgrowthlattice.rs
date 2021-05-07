@@ -5,6 +5,11 @@ use std::collections::HashMap;
 
 pub type StackGrowthLattice = ConstLattice<(i64, i64, HashMap<u8, i64>)>;
 
+// Wamr stack memory constants
+pub const WAMR_STACK_UPPER_BOUND: i64 = 4096;
+pub const WAMR_GUARD_PAGE_COUNT: i64 = 3;
+pub const WAMR_STACK_LOWER_BOUND: i64 = -4096 * WAMR_GUARD_PAGE_COUNT;
+
 impl VarState for StackGrowthLattice {
     type Var = i64;
     fn get(&mut self, _index: &Value) -> Option<Self::Var> {

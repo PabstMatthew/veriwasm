@@ -1,7 +1,7 @@
 use crate::analyses::AbstractAnalyzer;
 use crate::utils::ir_utils::{get_imm_offset, is_rsp, is_callee_saved_reg, memarg_is_stack};
 use crate::lattices::reachingdefslattice::LocIdx;
-use crate::lattices::stackgrowthlattice::StackGrowthLattice;
+use crate::lattices::stackgrowthlattice::{StackGrowthLattice, WAMR_STACK_LOWER_BOUND};
 use crate::utils::lifter::{Unopcode, Binopcode, Stmt, Value, MemArgs};
 use crate::utils::utils::{CompilerMetadata, Compiler};
 use std::collections::HashMap;
@@ -164,20 +164,14 @@ impl StackAnalyzer {
         if is_rsp(dst) {
             if is_rsp(src1) {
                 let offset = get_imm_offset(src2);
-                if let Some((x, probestack, _saved)) = &mut in_state.v {
+                if let Some((x, _, _)) = &mut in_state.v {
                     match opcode {
                         Binopcode::Add => {
                             *x += offset;
                         }
                         Binopcode::Sub => {
-                            if (offset - *x) > *probestack + 4096 {
-                                panic!("Probestack, _ violation")
-                            } else if (offset - *x) > *probestack {
-                                //if we touch next page after the space
-                                //we've probed, it cannot skip guard page
-                                *x -= offset;
-                                *probestack += 4096;
-                                return;
+                            if (offset - *x) < WAMR_STACK_LOWER_BOUND {
+                                panic!("Stack growing past guard pages!")
                             }
                             *x -= offset;
                         }

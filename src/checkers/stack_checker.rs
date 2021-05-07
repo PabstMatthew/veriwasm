@@ -1,10 +1,12 @@
 use crate::analyses::stack_analyzer::StackAnalyzer;
 use crate::analyses::{AbstractAnalyzer, AnalysisResult};
 use crate::checkers::Checker;
-use crate::utils::ir_utils::{get_imm_mem_offset, is_stack_access};
+use crate::utils::ir_utils::{get_imm_mem_offset, is_stack_access, is_callee_saved_reg};
 use crate::lattices::reachingdefslattice::LocIdx;
-use crate::lattices::stackgrowthlattice::StackGrowthLattice;
+use crate::lattices::stackgrowthlattice::{StackGrowthLattice, WAMR_STACK_UPPER_BOUND, WAMR_STACK_LOWER_BOUND};
 use crate::utils::lifter::{IRMap, MemArgs, Stmt, Value};
+use crate::utils::utils::Compiler;
+use std::collections::HashMap;
 
 pub struct StackChecker<'a> {
     irmap: &'a IRMap,
@@ -21,6 +23,32 @@ pub fn check_stack(
         analyzer: analyzer,
     }
     .check(result)
+}
+
+/// Checks if it is safe for an operation to clobber a register
+fn is_callee_saved_reg_safe(dst: &Value, state: &StackGrowthLattice) -> bool {
+    if is_callee_saved_reg(dst) {
+        if let Value::Reg(regnum, _regsize) = dst {
+            if let Some((_, _, saved)) = &state.v {
+                if !saved.contains_key(regnum) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Checks if a stack write will clobber a saved register
+fn write_clobbers_callee_saved_reg(offset: i64, saved: &HashMap<u8, i64>) -> bool {
+    for saved_offset in saved.values() {
+        if *saved_offset == offset {
+            return true;
+        }
+    }
+    false
 }
 
 impl Checker<StackGrowthLattice> for StackChecker<'_> {
@@ -58,8 +86,17 @@ impl Checker<StackGrowthLattice> for StackChecker<'_> {
         match ir_stmt {
             //encapsulates both load and store
             Stmt::Unop(_, dst, src) =>
-            // stack write: probestack <= stackgrowth + c < 0
             {
+                // make sure that callee-saved registers are not overwritten before being saved
+                // (for Wamr only)
+                if let Compiler::Wamr = self.analyzer.compiler() { 
+                    if !is_callee_saved_reg_safe(dst, state) {
+                        println!("modifying a callee-saved register before saving/after restoring!");
+                        return false;
+                    }
+                }
+
+                // stack write: probestack <= stackgrowth + c < 0
                 if is_stack_access(dst) {
                     if !self.check_stack_write(state, dst) {
                         println!(
@@ -79,7 +116,17 @@ impl Checker<StackGrowthLattice> for StackChecker<'_> {
                         return false;
                     }
                 }
-            }
+            },
+            Stmt::Binop(_, dst, _, _) => {
+                // make sure that callee-saved registers are not overwritten before being saved
+                // (for Wamr only)
+                if let Compiler::Wamr = self.analyzer.compiler() { 
+                    if !is_callee_saved_reg_safe(dst, state) {
+                        println!("modifying a callee-saved register before saving/after restoring!");
+                        return false;
+                    }
+                }
+            },
             _ => (),
         }
 
@@ -98,7 +145,7 @@ impl Checker<StackGrowthLattice> for StackChecker<'_> {
 }
 
 impl StackChecker<'_> {
-    fn check_stack_read(&self, state: &StackGrowthLattice, src: &Value) -> bool {
+    fn lucet_check_stack_read(&self, state: &StackGrowthLattice, src: &Value) -> bool {
         if let Value::Mem(_, memargs) = src {
             match memargs {
                 MemArgs::Mem1Arg(_memarg) => {
@@ -117,7 +164,7 @@ impl StackChecker<'_> {
         panic!("Unreachable")
     }
 
-    fn check_stack_write(&self, state: &StackGrowthLattice, dst: &Value) -> bool {
+    fn lucet_check_stack_write(&self, state: &StackGrowthLattice, dst: &Value) -> bool {
         if let Value::Mem(_, memargs) = dst {
             match memargs {
                 MemArgs::Mem1Arg(_memarg) => {
@@ -134,5 +181,65 @@ impl StackChecker<'_> {
             }
         }
         panic!("Unreachable")
+    }
+
+    fn wamr_check_stack_read(&self, state: &StackGrowthLattice, src: &Value) -> bool {
+        if let Value::Mem(_, memargs) = src {
+            if let Some((stackgrowth, _, _)) = &state.v {
+                match memargs {
+                    MemArgs::Mem1Arg(_memarg) => {
+                        return *stackgrowth < WAMR_STACK_UPPER_BOUND &&
+                               *stackgrowth > WAMR_STACK_LOWER_BOUND;
+                    },
+                    MemArgs::Mem2Args(_memarg1, memarg2) => {
+                        let offset = stackgrowth + get_imm_mem_offset(memarg2);
+                        return offset < WAMR_STACK_UPPER_BOUND &&
+                               offset > WAMR_STACK_LOWER_BOUND;
+                    },
+                    _ => return false, //stack accesses should never have 3 args
+                }
+            }
+        }
+        panic!("Unreachable")
+    }
+
+    fn wamr_check_stack_write(&self, state: &StackGrowthLattice, dst: &Value) -> bool {
+        if let Value::Mem(_, memargs) = dst {
+            if let Some((stackgrowth, _, saved)) = &state.v {
+                match memargs {
+                    MemArgs::Mem1Arg(_memarg) => {
+                        if write_clobbers_callee_saved_reg(*stackgrowth, saved) {
+                            return false;
+                        }
+                        return *stackgrowth < 0 &&
+                               *stackgrowth > WAMR_STACK_LOWER_BOUND;
+                    },
+                    MemArgs::Mem2Args(_memarg1, memarg2) => {
+                        let offset = *stackgrowth + get_imm_mem_offset(memarg2);
+                        if write_clobbers_callee_saved_reg(offset, saved) {
+                            return false;
+                        }
+                        return offset < 0 &&
+                               offset > WAMR_STACK_LOWER_BOUND;
+                    },
+                    _ => return false, //stack accesses should never have 3 args
+                }
+            }
+        }
+        panic!("Unreachable")
+    }
+
+    fn check_stack_read(&self, state: &StackGrowthLattice, src: &Value) -> bool {
+        match self.analyzer.compiler() {
+            Compiler::Lucet => self.lucet_check_stack_read(state, src),
+            Compiler::Wamr => self.wamr_check_stack_read(state, src),
+        }
+    }
+
+    fn check_stack_write(&self, state: &StackGrowthLattice, src: &Value) -> bool {
+        match self.analyzer.compiler() {
+            Compiler::Lucet => self.lucet_check_stack_write(state, src),
+            Compiler::Wamr => self.wamr_check_stack_write(state, src),
+        }
     }
 }
