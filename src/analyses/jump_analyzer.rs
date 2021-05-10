@@ -36,7 +36,7 @@ impl AbstractAnalyzer<SwitchLattice> for SwitchAnalyzer {
         src: &Value,
         _loc_idx: &LocIdx,
     ) -> () {
-        in_state.set(dst, self.aeval_unop(in_state, src))
+        in_state.set(dst, self.aeval_unop(in_state, src));
     }
 
     fn aexec_binop(
