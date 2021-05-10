@@ -391,21 +391,27 @@ fn lea(instr: &yaxpeax_x86::long_mode::Instruction, addr: &u64) -> Vec<Stmt> {
     }
 
     match convert_operand(src1, get_operand_size(dst.clone()).unwrap()) {
-        Value::Mem(_, memargs) => match memargs {
+        Value::Mem(memsize, memargs) => match memargs {
             // an LEA of the form "lea [imm], dst"
             MemArgs::Mem1Arg(_) => vec![unop(Unopcode::Mov, instr)],
             // an LEA of the form "lea [reg+imm], dst"
             MemArgs::Mem2Args(arg1, arg2) => {
                 if let MemArg::Reg(regnum, regsize) = arg1 {
                     if let MemArg::Imm(immtype, immsize, immval) = arg2 {
-                        return vec![Stmt::Binop(Binopcode::Add, convert_operand(dst, ValSize::SizeOther), 
+                        return vec![Stmt::Binop(Binopcode::Add, convert_operand(dst, memsize), 
                                            Value::Reg(regnum, regsize), 
                                            Value::Imm(immtype, immsize, immval))];
                     }
                 }
                 return clear_dst(instr);
             },
-            _ => clear_dst(instr),
+            _ => {
+                if let Value::Reg(regnum, regsize) = convert_operand(dst, memsize) {
+                    // LEAs don't actually load from memory, so it's safe to just clear the destination
+                    return vec![Stmt::Clear(Value::Reg(regnum, regsize), vec![])];
+                }
+                return clear_dst(instr);
+            }
         },
         _ => panic!("Illegal lea"),
     }
