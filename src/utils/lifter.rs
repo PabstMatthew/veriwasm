@@ -401,6 +401,9 @@ fn lea(instr: &yaxpeax_x86::long_mode::Instruction, addr: &u64) -> Vec<Stmt> {
                         return vec![Stmt::Binop(Binopcode::Add, convert_operand(dst, memsize), 
                                            Value::Reg(regnum, regsize), 
                                            Value::Imm(immtype, immsize, immval))];
+                    } else {
+                        // LEAs don't actually load from memory, so it's safe to just clear the destination
+                        return vec![Stmt::Clear(Value::Reg(regnum, regsize), vec![])];
                     }
                 }
                 return clear_dst(instr);

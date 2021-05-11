@@ -53,7 +53,6 @@ fn wamr_resolve_indirect_jump(program: &ModuleData,
                         if let Some(SwitchValue::UpperBound(bound)) = aval.v {
                             let jmpbase = *baseval as u32;
                             assert!(*scaleval == 8, "Illegal scale value in indirect jump!");
-                            println!("recognized jump with base {:x} and bound {}!", jmpbase, bound);
                             let jmpbound = SwitchValueLattice::new(SwitchValue::JmpTarget(jmpbase, bound));
                             let targets = extract_jmp_targets(program, &jmpbound, Compiler::Wamr);
                             switch_targets.insert(*addr, targets);
