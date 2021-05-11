@@ -305,14 +305,12 @@ impl CallAnalyzer {
                     },
                     MemArgs::Mem2Args(MemArg::Reg(regnum, regsize), 
                                       MemArg::Imm(_, _, WAMR_FUNCPTRS_OFFSET)) => {
-
                         if let Some(CallCheckValue::WamrModuleInstance) = in_state.regs.get(regnum, regsize).v {
                             return CallCheckValueLattice { v: Some(CallCheckValue::WamrFuncPtrsTable) };
                         }
                     },
                     MemArgs::Mem2Args(MemArg::Reg(regnum, regsize), 
                                       MemArg::Imm(_, _, WAMR_FUNCTYPE_OFFSET)) => {
-
                         if let Some(CallCheckValue::WamrModuleInstance) = in_state.regs.get(regnum, regsize).v {
                             return CallCheckValueLattice { v: Some(CallCheckValue::WamrFuncTypeTable) };
                         }
@@ -325,7 +323,7 @@ impl CallAnalyzer {
                         // the purpose of this code is just to pass on the fact that the result of
                         // this access will be a validated pointer
                         if let Some(CallCheckValue::WamrModuleInstance) = in_state.regs.get(base_regnum, &ValSize::Size64).v {
-                            if *immval >= WAMR_FUNCINDS_OFFSET {
+                            if *immval >= WAMR_FUNCINDS_OFFSET-4 {
                                 return CallCheckValueLattice { v: Some(CallCheckValue::WamrFuncIdx) };
                             }
                         }

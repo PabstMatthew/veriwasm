@@ -362,7 +362,7 @@ impl HeapChecker<'_> {
                         // Case 1: an access to the table of function indexes
                         MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) => {
                             if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
-                                if *immval >= WAMR_FUNCINDS_OFFSET {
+                                if *immval >= WAMR_FUNCINDS_OFFSET || *immval == WAMR_FUNCINDS_OFFSET-4 {
                                     // responsibility of call checker to check this is in-bounds
                                     return true;
                                 }
