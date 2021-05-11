@@ -12,7 +12,7 @@ use crate::checkers::heap_checker::check_heap;
 use crate::checkers::stack_checker::check_stack;
 use crate::utils::ir_utils::has_indirect_calls;
 use crate::utils::utils::{Compiler,fully_resolved_cfg,get_data};
-use utils::utils::{load_metadata, load_program};
+use utils::utils::{load_metadata, load_program, wamr_get_native_addrs};
 use clap::{App, Arg};
 use serde_json;
 use std::fs;
@@ -30,6 +30,7 @@ pub struct Config {
     compiler: Compiler,
     funcs: Vec<u32>,
     globals_size: i64,
+    call_table_size: i64,
 }
 
 fn run(config: Config) {
@@ -40,7 +41,11 @@ fn run(config: Config) {
     println!("Loading Metadata");
     let metadata = load_metadata(&config.module_path, config.compiler, config.globals_size);
     let (x86_64_data, func_addrs, plt) = get_data(&config.module_path, &program, &config.funcs);
-    let valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
+    let mut valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
+    if let Compiler::Wamr = metadata.compiler {
+        // Wamr has a few special functions that shouldn't be verified, but should be call-able
+        valid_funcs.extend(wamr_get_native_addrs(&program));
+    }
     for (addr, func_name) in &func_addrs {
         println!("Generating CFG for {:?}", func_name);
         let start = Instant::now();
@@ -79,6 +84,7 @@ fn run(config: Config) {
                 metadata: metadata.clone(),
                 reaching_defs: reaching_defs.clone(),
                 reaching_analyzer: ReachingDefnAnalyzer {metadata: metadata.clone(), cfg: cfg.clone(), irmap: irmap.clone()},
+                call_table_size: config.call_table_size,
             };
             let call_result = run_worklist(&cfg, &irmap, &call_analyzer);
             let call_safe = check_calls(call_result, &irmap, &call_analyzer, &valid_funcs, &plt);
@@ -178,6 +184,12 @@ fn main() {
                 .takes_value(true)
                 .help("Size of global data in memory (WAMR-only)"),
         )
+        .arg(
+            Arg::with_name("calls")
+                .short("c")
+                .takes_value(true)
+                .help("# of functions in the indirect call table (WAMR-only)"),
+        )
         .get_matches();
 
     let module_path = matches.value_of("module path").unwrap();
@@ -205,6 +217,10 @@ fn main() {
     let globals_size = globals_size_opt
         .map(|s| s.parse::<i64>().unwrap_or(-1))
         .unwrap_or(-1);
+    let call_table_size_opt = matches.value_of("calls");
+    let call_table_size = call_table_size_opt
+        .map(|s| s.parse::<i64>().unwrap_or(-1))
+        .unwrap_or(-1);
 
     let has_output = if output_path == "" { false } else { true };
 
@@ -217,6 +233,7 @@ fn main() {
         compiler: compiler,
         funcs: funcs,
         globals_size: globals_size,
+        call_table_size: call_table_size,
     };
 
     run(config);

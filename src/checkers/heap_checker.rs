@@ -5,7 +5,9 @@ use crate::utils::ir_utils::{is_mem_access, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue};
 use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, 
                                    WAMR_HEAPBASE_OFFSET, WAMR_EXCEPTION_OFFSET, WAMR_MEMBOUNDS_OFFSET, 
-                                   WAMR_GLOBALSBASE_OFFSET};
+                                   WAMR_GLOBALSBASE_OFFSET,
+                                   WAMR_FUNCTYPE_OFFSET, WAMR_FUNCPTRS_OFFSET, WAMR_FUNCINDS_OFFSET,
+                                   WAMR_PAGECNT_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::utils::lifter::{IRMap, MemArg, MemArgs, Stmt, ValSize, Value};
 use crate::utils::utils::Compiler;
@@ -312,6 +314,24 @@ impl HeapChecker<'_> {
                         return true;
                     }
                 },
+                //Case 6: mem[WamrModuleInstance+WAMR_FUNCTYPE_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_FUNCTYPE_OFFSET)) => {
+                    if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
+                //Case 7: mem[WamrModuleInstance+WAMR_FUNCPTRS_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_FUNCPTRS_OFFSET)) => {
+                    if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
+                //Case 8: mem[WamrModuleInstance+WAMR_PAGECNT_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_PAGECNT_OFFSET)) => {
+                    if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                        return true;
+                    }
+                },
                 _ => return false,
             }
         }
@@ -325,7 +345,7 @@ impl HeapChecker<'_> {
         }
     }
 
-    fn check_jump_table_access(&self, _state: &HeapLattice, access: &Value) -> bool {
+    fn check_jump_table_access(&self, state: &HeapLattice, access: &Value) -> bool {
         match self.analyzer.metadata.compiler {
             Compiler::Lucet => {
                 if let Value::Mem(_size, memargs) = access {
@@ -336,8 +356,49 @@ impl HeapChecker<'_> {
                 }
                 false
             },
-            // Wamr doesn't have a jump table
-            Compiler::Wamr => return false,
+            Compiler::Wamr => {
+                if let Value::Mem(_size, memargs) = access {
+                    match memargs {
+                        // Case 1: an access to the table of function indexes
+                        MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) => {
+                            if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                                if *immval >= WAMR_FUNCINDS_OFFSET {
+                                    // responsibility of call checker to check this is in-bounds
+                                    return true;
+                                }
+                            }
+                        },
+                        MemArgs::MemScaleDisp(MemArg::Reg(regnum, ValSize::Size64),
+                                              MemArg::Reg(_, _), MemArg::Imm(_, _, 4),
+                                              MemArg::Imm(_, _, disp)) => {
+                            if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                                if *disp >= 0x1a8 {
+                                    // responsibility of call checker to check this is in-bounds
+                                    return true;
+                                }
+                            }
+                        }
+                        // Case 2: an access to the table of function types
+                        MemArgs::MemScale(MemArg::Reg(regnum, ValSize::Size64), 
+                                          MemArg::Reg(_, ValSize::Size64), MemArg::Imm(_, _, 4)) => {
+                            if let Some(HeapValue::WamrFuncTypeTable) = state.regs.get(regnum, &ValSize::Size64).v {
+                                // responsibility of call checker to check this is a valid index
+                                return true;
+                            }
+                        },
+                        // Case 3: an access to the table of function pointers
+                        MemArgs::MemScale(MemArg::Reg(regnum, ValSize::Size64), 
+                                          MemArg::Reg(_, ValSize::Size64), MemArg::Imm(_, _, 8)) => {
+                            if let Some(HeapValue::WamrFuncPtrsTable) = state.regs.get(regnum, &ValSize::Size64).v {
+                                // responsibility of call checker to check this is a valid index
+                                return true;
+                            }
+                        },
+                        _ => return false,
+                    }
+                }
+                false
+            },
         }
     }
 

@@ -12,6 +12,14 @@ pub enum CallCheckValue {
     FnPtr,
     CheckedVal,
     CheckFlag(u32, u8),
+    
+    // Wamr-specific values
+    WamrExecEnv,
+    WamrModuleInstance,
+    WamrFuncTypeTable,
+    WamrFuncPtrsTable,
+    WamrFuncIdx,
+    WamrChecked(u32)
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]

@@ -1,7 +1,11 @@
 use crate::analyses::AbstractAnalyzer;
 use crate::utils::ir_utils::{extract_stack_offset, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue, HeapValueLattice};
-use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_HEAPBASE_OFFSET, WAMR_GLOBALSBASE_OFFSET};
+use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, 
+                                   WAMR_HEAPBASE_OFFSET, 
+                                   WAMR_GLOBALSBASE_OFFSET, 
+                                   WAMR_FUNCPTRS_OFFSET,
+                                   WAMR_FUNCTYPE_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::lattices::VarState;
 use crate::utils::lifter::{MemArg, MemArgs, ValSize, Value, Binopcode};
@@ -102,6 +106,17 @@ fn wamr_access_helper(in_state: &HeapLattice, memargs: &MemArgs, base_val: HeapV
 }
 
 /*
+ * Checks if a memory access is to Wamr's global base pointer within the current AOTModuleInstance.
+ *  The access must be of the form mem[WamrModuleInstance + WAMR_GLOBALSBASE_OFFSET] 
+ *  (see lattices/heaplattice.rs for more details)
+ */
+pub fn wamr_is_globalbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
+    return wamr_access_helper(in_state, memargs, 
+                       HeapValue::WamrExecEnv, 
+                       WAMR_GLOBALSBASE_OFFSET);
+}
+
+/*
  * Checks if a memory access is to Wamr's AOTModuleInstance pointer within the current ExecEnv.
  *  The access must be of the form mem[WamrExecEnv + WAMR_MODULEINSTANCE_OFFSET] 
  *  (see lattices/heaplattice.rs for more details)
@@ -124,14 +139,25 @@ pub fn wamr_is_heapbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> boo
 }
 
 /*
- * Checks if a memory access is to Wamr's global base pointer within the current AOTModuleInstance.
- *  The access must be of the form mem[WamrModuleInstance + WAMR_GLOBALSBASE_OFFSET] 
+ * Checks if a memory access is to Wamr's function type table within the current AOTModuleInstance.
+ *  The access must be of the form mem[WamrModuleInstance + WAMR_FUNCTYPE_OFFSET] 
  *  (see lattices/heaplattice.rs for more details)
  */
-pub fn wamr_is_globalbase_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
+pub fn wamr_is_functype_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
     return wamr_access_helper(in_state, memargs, 
-                       HeapValue::WamrExecEnv, 
-                       WAMR_GLOBALSBASE_OFFSET);
+                       HeapValue::WamrModuleInstance, 
+                       WAMR_FUNCTYPE_OFFSET);
+}
+
+/*
+ * Checks if a memory access is to Wamr's function pointer table within the current AOTModuleInstance.
+ *  The access must be of the form mem[WamrModuleInstance + WAMR_FUNCPTRS_OFFSET] 
+ *  (see lattices/heaplattice.rs for more details)
+ */
+pub fn wamr_is_funcptrs_access(in_state: &HeapLattice, memargs: &MemArgs) -> bool {
+    return wamr_access_helper(in_state, memargs, 
+                       HeapValue::WamrModuleInstance, 
+                       WAMR_FUNCPTRS_OFFSET);
 }
 
 impl HeapAnalyzer {
@@ -153,6 +179,12 @@ impl HeapAnalyzer {
                 }
                 if wamr_is_globalbase_access(in_state, memargs) {
                     return HeapValueLattice::new(HeapValue::GlobalsBase);
+                }
+                if wamr_is_functype_access(in_state, memargs) {
+                    return HeapValueLattice::new(HeapValue::WamrFuncTypeTable);
+                }
+                if wamr_is_funcptrs_access(in_state, memargs) {
+                    return HeapValueLattice::new(HeapValue::WamrFuncPtrsTable);
                 }
             },
             Value::Reg(regnum, size) => {

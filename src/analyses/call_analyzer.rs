@@ -7,6 +7,7 @@ use crate::lattices::calllattice::{CallCheckLattice, CallCheckValue, CallCheckVa
 use crate::lattices::davlattice::DAV;
 use crate::lattices::reachingdefslattice::{LocIdx, ReachLattice};
 use crate::lattices::stacklattice::StackSlot;
+use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_FUNCPTRS_OFFSET, WAMR_FUNCTYPE_OFFSET, WAMR_FUNCINDS_OFFSET};
 use crate::lattices::VarState;
 use crate::utils::lifter::{Binopcode, IRMap, MemArg, MemArgs, ValSize, Value};
 use crate::utils::utils::{CompilerMetadata, Compiler};
@@ -16,9 +17,18 @@ pub struct CallAnalyzer {
     pub metadata: CompilerMetadata,
     pub reaching_defs: AnalysisResult<ReachLattice>,
     pub reaching_analyzer: ReachingDefnAnalyzer,
+    pub call_table_size: i64,
 }
 
 impl AbstractAnalyzer<CallCheckLattice> for CallAnalyzer {
+
+    fn init_state(&self) -> CallCheckLattice {
+        let mut result: CallCheckLattice = Default::default();
+        if let Compiler::Wamr = self.compiler() {
+            result.regs.rdi = CallCheckValueLattice::new(CallCheckValue::WamrExecEnv);
+        }
+        result
+    }
 
     fn compiler(&self) -> Compiler {
         self.metadata.compiler
@@ -52,7 +62,7 @@ impl AbstractAnalyzer<CallCheckLattice> for CallAnalyzer {
         src: &Value,
         _loc_idx: &LocIdx,
     ) -> () {
-        in_state.set(dst, self.aeval_unop(in_state, src))
+        in_state.set(dst, self.aeval_unop(&in_state, src))
     }
 
     fn aexec_binop(
@@ -64,24 +74,13 @@ impl AbstractAnalyzer<CallCheckLattice> for CallAnalyzer {
         src2: &Value,
         loc_idx: &LocIdx,
     ) -> () {
-        if let Binopcode::Cmp = opcode {
-            match (src1, src2) {
-                (Value::Reg(regnum1,size1), Value::Reg(regnum2, size2)) => {
-                    if let Some(CallCheckValue::TableSize) = in_state.regs.get(regnum2, size2).v{
-                        in_state.regs.zf =
-                            CallCheckValueLattice::new(CallCheckValue::CheckFlag(0, *regnum1))
-                    }
-                    if let Some(CallCheckValue::TableSize) = in_state.regs.get(regnum1, size1).v{
-                        in_state.regs.zf =
-                            CallCheckValueLattice::new(CallCheckValue::CheckFlag(0, *regnum2))
-                    }
-                }
-                _ => (),
-            }
-        }
-
         match opcode {
-            Binopcode::Cmp => (),
+            Binopcode::Cmp => {
+                match self.compiler() {
+                    Compiler::Lucet => self.lucet_handle_cmp(in_state, src1, src2),
+                    Compiler::Wamr => self.wamr_handle_cmp(in_state, src1, src2),
+                }
+            },
             Binopcode::Test => (),
             _ => in_state.set(dst, self.aeval_binop(in_state, opcode, src1, src2, loc_idx)),
         }
@@ -97,9 +96,12 @@ impl AbstractAnalyzer<CallCheckLattice> for CallAnalyzer {
         if succ_addrs.len() == 2 {
             let mut not_branch_state = in_state.clone();
             let mut branch_state = in_state.clone();
-            if let Some(CallCheckValue::CheckFlag(_, regnum)) = not_branch_state.regs.zf.v {
+            if let Some(CallCheckValue::CheckFlag(val, regnum)) = not_branch_state.regs.zf.v {
                 let new_val = CallCheckValueLattice {
-                    v: Some(CallCheckValue::CheckedVal),
+                    v: match self.compiler() {
+                           Compiler::Lucet => Some(CallCheckValue::CheckedVal),
+                           Compiler::Wamr => Some(CallCheckValue::WamrChecked(val)),
+                    }
                 };
                 branch_state.regs.set(
                     &regnum,
@@ -162,10 +164,16 @@ impl AbstractAnalyzer<CallCheckLattice> for CallAnalyzer {
             branch_state.regs.zf = Default::default();
             not_branch_state.regs.zf = Default::default();
 
-            vec![
-                (succ_addrs[0].clone(), not_branch_state),
-                (succ_addrs[1].clone(), branch_state),
-            ]
+            match self.compiler() {
+                Compiler::Lucet => return vec![
+                    (succ_addrs[0].clone(), not_branch_state),
+                    (succ_addrs[1].clone(), branch_state),
+                ],
+                Compiler::Wamr => return vec![
+                    (succ_addrs[0].clone(), branch_state),
+                    (succ_addrs[1].clone(), not_branch_state),
+                ],
+            }
         } else {
             succ_addrs
                 .into_iter()
@@ -214,7 +222,43 @@ pub fn is_fn_ptr(in_state: &CallCheckLattice, memargs: &MemArgs) -> bool {
 }
 
 impl CallAnalyzer {
+    fn lucet_handle_cmp(&self, in_state: &mut CallCheckLattice, src1: &Value, src2: &Value) {
+        match (src1, src2) {
+            (Value::Reg(regnum1,size1), Value::Reg(regnum2, size2)) => {
+                if let Some(CallCheckValue::TableSize) = in_state.regs.get(regnum2, size2).v{
+                    in_state.regs.zf =
+                        CallCheckValueLattice::new(CallCheckValue::CheckFlag(0, *regnum1))
+                }
+                if let Some(CallCheckValue::TableSize) = in_state.regs.get(regnum1, size1).v{
+                    in_state.regs.zf =
+                        CallCheckValueLattice::new(CallCheckValue::CheckFlag(0, *regnum2))
+                }
+            }
+            _ => (),
+        }
+    }
+
+    fn wamr_handle_cmp(&self, in_state: &mut CallCheckLattice, src1: &Value, src2: &Value) {
+        match (src1, src2) {
+            (Value::Imm(_, _, immval), Value::Reg(regnum, regsize)) |
+            (Value::Reg(regnum, regsize), Value::Imm(_, _, immval)) => {
+                match in_state.regs.get(regnum, regsize).v {
+                    Some(_) => (),
+                    _ => in_state.regs.zf = CallCheckValueLattice::new(CallCheckValue::CheckFlag(*immval as u32, *regnum)),
+                }
+            },
+            _ => (),
+        }
+    }
+
     pub fn aeval_unop(&self, in_state: &CallCheckLattice, value: &Value) -> CallCheckValueLattice {
+        match self.compiler() {
+            Compiler::Lucet => self.lucet_aeval_unop(in_state, value),
+            Compiler::Wamr => self.wamr_aeval_unop(in_state, value),
+        }
+    }
+
+    fn lucet_aeval_unop(&self, in_state: &CallCheckLattice, value: &Value) -> CallCheckValueLattice {
         match value {
             Value::Mem(memsize, memargs) => {
                 if is_table_size(in_state, memargs) {
@@ -244,6 +288,52 @@ impl CallAnalyzer {
                     };
                 }
             }
+        }
+        Default::default()
+    }
+
+    fn wamr_aeval_unop(&self, in_state: &CallCheckLattice, value: &Value) -> CallCheckValueLattice {
+        match value {
+            Value::Mem(_memsize, memargs) => {
+                match memargs {
+                    MemArgs::Mem2Args(MemArg::Reg(regnum, regsize), 
+                                      MemArg::Imm(_, _, WAMR_MODULEINSTANCE_OFFSET)) => {
+
+                        if let Some(CallCheckValue::WamrExecEnv) = in_state.regs.get(regnum, regsize).v {
+                            return CallCheckValueLattice { v: Some(CallCheckValue::WamrModuleInstance) };
+                        }
+                    },
+                    MemArgs::Mem2Args(MemArg::Reg(regnum, regsize), 
+                                      MemArg::Imm(_, _, WAMR_FUNCPTRS_OFFSET)) => {
+
+                        if let Some(CallCheckValue::WamrModuleInstance) = in_state.regs.get(regnum, regsize).v {
+                            return CallCheckValueLattice { v: Some(CallCheckValue::WamrFuncPtrsTable) };
+                        }
+                    },
+                    MemArgs::Mem2Args(MemArg::Reg(regnum, regsize), 
+                                      MemArg::Imm(_, _, WAMR_FUNCTYPE_OFFSET)) => {
+
+                        if let Some(CallCheckValue::WamrModuleInstance) = in_state.regs.get(regnum, regsize).v {
+                            return CallCheckValueLattice { v: Some(CallCheckValue::WamrFuncTypeTable) };
+                        }
+                    },
+                    MemArgs::Mem2Args(MemArg::Reg(base_regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) |
+                    MemArgs::MemScaleDisp(MemArg::Reg(base_regnum, ValSize::Size64),
+                                          MemArg::Reg(_, ValSize::Size64), MemArg::Imm(_, _, 4),
+                                          MemArg::Imm(_, _, immval)) => {
+                        // the safety of these accesses is checked in the actual call checker,
+                        // the purpose of this code is just to pass on the fact that the result of
+                        // this access will be a validated pointer
+                        if let Some(CallCheckValue::WamrModuleInstance) = in_state.regs.get(base_regnum, &ValSize::Size64).v {
+                            if *immval >= WAMR_FUNCINDS_OFFSET {
+                                return CallCheckValueLattice { v: Some(CallCheckValue::WamrFuncIdx) };
+                            }
+                        }
+                    }
+                    _ => (),
+                }
+            },
+            _ => (),
         }
         Default::default()
     }

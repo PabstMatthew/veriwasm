@@ -4,7 +4,9 @@ use crate::checkers::Checker;
 use crate::lattices::calllattice::{CallCheckLattice, CallCheckValue};
 use crate::lattices::davlattice::DAV;
 use crate::lattices::reachingdefslattice::LocIdx;
+use crate::lattices::heaplattice::WAMR_FUNCINDS_OFFSET;
 use crate::utils::lifter::{IRMap, MemArg, MemArgs, Stmt, ValSize, Value};
+use crate::utils::utils::Compiler;
 
 pub struct CallChecker<'a> {
     irmap: &'a IRMap,
@@ -72,6 +74,18 @@ impl CallChecker<'_> {
         target: &Value,
         loc_idx: &LocIdx,
     ) -> bool {
+        match self.analyzer.compiler() {
+            Compiler::Lucet => self.lucet_check_indirect_call(state, target, loc_idx),
+            Compiler::Wamr => self.wamr_check_indirect_call(state, target, loc_idx),
+        }
+    }
+
+    fn lucet_check_indirect_call(
+        &self,
+        state: &CallCheckLattice,
+        target: &Value,
+        loc_idx: &LocIdx,
+    ) -> bool {
         match target {
             Value::Reg(regnum, size) => {
                 if let Some(CallCheckValue::FnPtr) = state.regs.get(regnum, size).v {
@@ -82,8 +96,7 @@ impl CallChecker<'_> {
                 }
             }
             Value::Mem(_, _) => return false,
-            Value::Imm(_, _, imm) => 
-            {
+            Value::Imm(_, _, imm) => {
                 let target = (*imm + (loc_idx.addr as i64) + 5) as u64;
                 let (plt_start, plt_end) = self.plt;
                 return self.funcs.contains(&target) || 
@@ -93,7 +106,52 @@ impl CallChecker<'_> {
         false
     }
 
+    fn wamr_check_indirect_call(
+        &self,
+        state: &CallCheckLattice,
+        target: &Value,
+        loc_idx: &LocIdx,
+    ) -> bool {
+        match target {
+            Value::Mem(_, memargs) => {
+                match memargs {
+                    // check that indirect call lookups use a valid base and index
+                    // (this must match Case 3 in check_jump_table_access in the heap checker)
+                    MemArgs::MemScale(MemArg::Reg(base_regnum, base_regsize),
+                                      MemArg::Reg(idx_regnum, ValSize::Size64), MemArg::Imm(_, _, 8)) => {
+                        if let Some(CallCheckValue::WamrFuncPtrsTable) = state.regs.get(base_regnum, base_regsize).v {
+                            if let Some(CallCheckValue::WamrFuncIdx) = state.regs.get(idx_regnum, &ValSize::Size64).v {
+                                return true;
+                            } else {
+                                println!("indirect call without valid function index: {:?}", 
+                                         state.regs.get(idx_regnum, &ValSize::Size64).v);
+                                return false;
+                            }
+                        } else {
+                            println!("indirect call without valid base address: {:?}", memargs);
+                            return false;
+                        }
+                    },
+                    _ => (),
+                }
+            },
+            Value::Imm(_, _, imm) => {
+                let target = (*imm + (loc_idx.addr as i64) + 5) as u64;
+                return self.funcs.contains(&target);
+            }, 
+            _ => (),
+        }
+        false
+    }
+
     fn check_calltable_lookup(&self, state: &CallCheckLattice, memargs: &MemArgs) -> bool {
+        match self.analyzer.compiler() {
+            Compiler::Lucet => self.lucet_check_calltable_lookup(state, memargs),
+            Compiler::Wamr => self.wamr_check_calltable_lookup(state, memargs),
+        }
+    }
+
+    fn lucet_check_calltable_lookup(&self, state: &CallCheckLattice, memargs: &MemArgs) -> bool {
         // println!("Call Table Lookup: {:?}", memargs);
         match memargs {
             MemArgs::Mem3Args(
@@ -118,6 +176,46 @@ impl CallChecker<'_> {
             },
             _ => return true, //not a calltable lookup?
         }
+    }
+
+    fn wamr_check_calltable_lookup(&self, state: &CallCheckLattice, memargs: &MemArgs) -> bool {
+        let lower_bound = WAMR_FUNCINDS_OFFSET;
+        let upper_bound = lower_bound + 4*(self.analyzer.call_table_size-1);
+        match memargs {
+            // the cases here must match Case 1 for check_jump_table_access in the heap checker
+            MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) => {
+                if let Some(CallCheckValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                    if *immval >= lower_bound {
+                        return *immval >= lower_bound && *immval <= upper_bound;
+                    }
+                }
+            },
+            MemArgs::MemScaleDisp(MemArg::Reg(base_regnum, ValSize::Size64),
+                                  MemArg::Reg(idx_regnum, ValSize::Size64), MemArg::Imm(_, _, 4),
+                                  MemArg::Imm(_, _, WAMR_FUNCINDS_OFFSET)) => {
+                if let Some(CallCheckValue::WamrModuleInstance) = state.regs.get(base_regnum, &ValSize::Size64).v {
+                    if let Some(CallCheckValue::WamrChecked(val)) = state.regs.get(idx_regnum, &ValSize::Size64).v {
+                        return val < (self.analyzer.call_table_size as u32);
+                    } else {
+                        println!("unchecked index into the function index table!");
+                        return false;
+                    }
+                }
+            },
+            // check that function type table lookups use a valid index 
+            // (must match Case 2 for check_jump_table_access in the heap checker)
+            MemArgs::MemScale(MemArg::Reg(regnum, ValSize::Size64),
+                              MemArg::Reg(_, ValSize::Size64), MemArg::Imm(_, _, 4)) => {
+                if let Some(CallCheckValue::WamrFuncTypeTable) = state.regs.get(regnum, &ValSize::Size64).v {
+                    return true;
+                } else {
+                    println!("function type table lookup without valid index!");
+                    return false;
+                }
+            }
+            _ => (),
+        }
+        true // not a recognized function index lookup
     }
 }
 

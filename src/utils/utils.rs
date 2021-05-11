@@ -298,6 +298,23 @@ pub fn load_metadata(binpath: &str, compiler: Compiler, globals_size: i64) -> Co
     }
 }
 
+pub fn wamr_get_native_addrs(program: &ModuleData) -> Vec<u64> {
+    let (_, _sections, _entrypoint, _imports, _exports, symbols) =
+        match (program as &dyn MemoryRepr<<AMD64 as Arch>::Address>).module_info() {
+            Some(ModuleInfo::ELF(isa, _, _, sections, entry, _, imports, exports, symbols)) =>
+                (isa, sections, entry, imports, exports, symbols),
+            _ => panic!("unreachable!"),
+        };
+    let mut result = vec![];
+    for native_func_name in vec!["aot_set_exception_with_id", 
+                                 "aot_invoke_native",
+                                 "wasm_runtime_enlarge_memory"] {
+        let addr = get_symbol_addr(symbols, native_func_name).unwrap();
+        result.push(addr);
+    }
+    result
+}
+
 pub fn get_rsp_offset(memargs: &MemArgs) -> Option<i64> {
     match memargs {
         MemArgs::Mem1Arg(arg) => {
