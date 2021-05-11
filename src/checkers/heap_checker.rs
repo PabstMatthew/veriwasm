@@ -360,24 +360,19 @@ impl HeapChecker<'_> {
                 if let Value::Mem(_size, memargs) = access {
                     match memargs {
                         // Case 1: an access to the table of function indexes
-                        MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) => {
+                        MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) |
+                        MemArgs::MemScaleDisp(MemArg::Reg(regnum, ValSize::Size64),
+                                              MemArg::Reg(_, _), MemArg::Imm(_, _, 4),
+                                              MemArg::Imm(_, _, immval)) => {
                             if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
-                                if *immval >= WAMR_FUNCINDS_OFFSET || *immval == WAMR_FUNCINDS_OFFSET-4 {
+                                if *immval >= WAMR_FUNCINDS_OFFSET || 
+                                        *immval == WAMR_FUNCINDS_OFFSET - 4 || 
+                                        *immval == WAMR_FUNCINDS_OFFSET - 8 {
                                     // responsibility of call checker to check this is in-bounds
                                     return true;
                                 }
                             }
                         },
-                        MemArgs::MemScaleDisp(MemArg::Reg(regnum, ValSize::Size64),
-                                              MemArg::Reg(_, _), MemArg::Imm(_, _, 4),
-                                              MemArg::Imm(_, _, disp)) => {
-                            if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
-                                if *disp >= 0x1a8 {
-                                    // responsibility of call checker to check this is in-bounds
-                                    return true;
-                                }
-                            }
-                        }
                         // Case 2: an access to the table of function types
                         MemArgs::MemScale(MemArg::Reg(regnum, ValSize::Size64), 
                                           MemArg::Reg(_, ValSize::Size64), MemArg::Imm(_, _, 4)) => {
