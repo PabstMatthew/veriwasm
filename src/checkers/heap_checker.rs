@@ -152,7 +152,9 @@ impl HeapChecker<'_> {
                         MemArgs::Mem1Arg(MemArg::Reg(regnum, ValSize::Size64)) => {
                             // accessing the base global variable memory
                             if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v {
-                                return ((memsize.to_u32()/8) as i64) <= self.analyzer.metadata.globals_size;
+                                // allowed regardless of the size of global memory in order to
+                                // enable calling aot_invoke_native with a parameter
+                                return true;
                             }
                         },
                         MemArgs::Mem2Args(
@@ -237,6 +239,20 @@ impl HeapChecker<'_> {
                                 _ => (),
                             }
                         }
+                    }
+                },
+                MemArgs::MemScale(base, disp, scale) => {
+                    match (base, disp, scale) {
+                        (MemArg::Reg(base_regnum, ValSize::Size64), 
+                         MemArg::Reg(disp_regnum, disp_regsize), MemArg::Imm(_, _, immval)) => {
+                            if let (Some(HeapValue::HeapBase), Some(HeapValue::Bounded256B)) = (
+                                state.regs.get(base_regnum, &ValSize::Size64).v,
+                                state.regs.get(disp_regnum, &disp_regsize).v,
+                            ) {
+                                return *immval < (1 << 25);
+                            }
+                        },
+                        _ => return false,
                     }
                 },
                 _ => return false,

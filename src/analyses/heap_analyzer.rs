@@ -38,13 +38,24 @@ impl AbstractAnalyzer<HeapLattice> for HeapAnalyzer {
         _loc_idx: &LocIdx,
     ) -> () {
         let mut v: HeapValueLattice = self.aeval_unop(in_state, src);
-        if v == HeapValueLattice::default() {
-            if let Value::Reg(_, ValSize::Size32) = dst {
-                // in x86, mov'ing to a 32b register clears the upper 32b of the corresponding
-                // 64b register. We need to communicate this state to enable checking of future
-                // accesses that use the 64b register (for Wamr).
-                v = HeapValueLattice::new(HeapValue::Bounded4GB);
-            }
+        match dst {
+            // in x86, mov'ing to a smaller register clears the upper bits of the corresponding
+            // 64b register. We need to communicate this state to enable checking of future
+            // accesses that use the 64b register (for Wamr).
+            Value::Reg(_, ValSize::Size32) | 
+            Value::Reg(_, ValSize::Size16) => {
+                if v == HeapValueLattice::default() {
+                    v = HeapValueLattice::new(HeapValue::Bounded4GB);
+                }
+            },
+            Value::Reg(_, ValSize::Size8) => {
+                if v == HeapValueLattice::default() {
+                    v = HeapValueLattice::new(HeapValue::Bounded256B);
+                } else if let Some(HeapValue::Bounded4GB) = v.v {
+                    v = HeapValueLattice::new(HeapValue::Bounded256B);
+                }
+            },
+            _ => (),
         }
         in_state.set(dst, v)
     }

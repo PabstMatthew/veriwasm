@@ -5,6 +5,7 @@ pub enum HeapValue {
     HeapBase,
     GlobalsBase,
     Bounded4GB,
+    Bounded256B,
 
     // Lucet-specific values
     LucetTables,

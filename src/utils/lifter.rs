@@ -91,6 +91,7 @@ impl Stmt {
 #[derive(Debug, Clone)]
 pub enum Unopcode {
     Mov,
+    Set,
 }
 #[derive(Debug, Clone)]
 pub enum Binopcode {
@@ -532,6 +533,24 @@ pub fn lift(
             }
         }
 
+        SETO
+        | SETNO
+        | SETB
+        | SETAE
+        | SETZ
+        | SETNZ
+        | SETBE
+        | SETA
+        | SETS
+        | SETNS
+        | SETP
+        | SETNP
+        | SETL
+        | SETGE
+        | SETLE
+        | SETG => instrs.push(Stmt::Unop(Unopcode::Set, 
+                              convert_operand(instr.operand(0), ValSize::Size8), 
+                              Value::Reg(16, ValSize::Size8))),
         Opcode::OR
         | Opcode::SHR
         | Opcode::RCL
@@ -554,22 +573,6 @@ pub fn lift(
         | Opcode::CMOVP
         | Opcode::CMOVS
         | Opcode::CMOVZ
-        | SETO
-        | SETNO
-        | SETB
-        | SETAE
-        | SETZ
-        | SETNZ
-        | SETBE
-        | SETA
-        | SETS
-        | SETNS
-        | SETP
-        | SETNP
-        | SETL
-        | SETGE
-        | SETLE
-        | SETG
         | Opcode::SAR
         | Opcode::ADC
         | Opcode::ROUNDSS
