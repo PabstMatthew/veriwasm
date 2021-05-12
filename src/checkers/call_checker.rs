@@ -4,7 +4,7 @@ use crate::checkers::Checker;
 use crate::lattices::calllattice::{CallCheckLattice, CallCheckValue};
 use crate::lattices::davlattice::DAV;
 use crate::lattices::reachingdefslattice::LocIdx;
-use crate::lattices::heaplattice::WAMR_FUNCINDS_OFFSET;
+use crate::lattices::heaplattice::WAMR_GLOBALS_OFFSET;
 use crate::utils::lifter::{IRMap, MemArg, MemArgs, Stmt, ValSize, Value};
 use crate::utils::utils::Compiler;
 
@@ -179,8 +179,8 @@ impl CallChecker<'_> {
     }
 
     fn wamr_check_calltable_lookup(&self, state: &CallCheckLattice, memargs: &MemArgs) -> bool {
-        let lower_bound = WAMR_FUNCINDS_OFFSET;
-        let upper_bound = lower_bound + 4*(self.analyzer.call_table_size-1);
+        let lower_bound = WAMR_GLOBALS_OFFSET;
+        let upper_bound = lower_bound + self.analyzer.metadata.globals_size;
         match memargs {
             // the cases here must match Case 1 for check_jump_table_access in the heap checker
             MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) => {
@@ -192,10 +192,10 @@ impl CallChecker<'_> {
             },
             MemArgs::MemScaleDisp(MemArg::Reg(base_regnum, ValSize::Size64),
                                   MemArg::Reg(idx_regnum, ValSize::Size64), MemArg::Imm(_, _, 4),
-                                  MemArg::Imm(_, _, WAMR_FUNCINDS_OFFSET)) => {
+                                  MemArg::Imm(_, _, WAMR_GLOBALS_OFFSET)) => {
                 if let Some(CallCheckValue::WamrModuleInstance) = state.regs.get(base_regnum, &ValSize::Size64).v {
                     if let Some(CallCheckValue::WamrChecked(val)) = state.regs.get(idx_regnum, &ValSize::Size64).v {
-                        return val < (self.analyzer.call_table_size as u32);
+                        return val < (self.analyzer.metadata.globals_size as u32);
                     } else {
                         println!("unchecked index into the function index table!");
                         return false;

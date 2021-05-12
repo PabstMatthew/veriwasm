@@ -5,8 +5,9 @@ use crate::utils::ir_utils::{is_mem_access, is_stack_access};
 use crate::lattices::heaplattice::{HeapLattice, HeapValue};
 use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, 
                                    WAMR_HEAPBASE_OFFSET, WAMR_EXCEPTION_OFFSET, WAMR_MEMBOUNDS_OFFSET, 
-                                   WAMR_GLOBALSBASE_OFFSET,
-                                   WAMR_FUNCTYPE_OFFSET, WAMR_FUNCPTRS_OFFSET, WAMR_FUNCINDS_OFFSET,
+                                   WAMR_GLOBALS_OFFSET,
+                                   WAMR_STACKLIMIT_OFFSET,
+                                   WAMR_FUNCTYPE_OFFSET, WAMR_FUNCPTRS_OFFSET,
                                    WAMR_PAGECNT_OFFSET};
 use crate::lattices::reachingdefslattice::LocIdx;
 use crate::utils::lifter::{IRMap, MemArg, MemArgs, Stmt, ValSize, Value};
@@ -149,6 +150,7 @@ impl HeapChecker<'_> {
             Compiler::Wamr => {
                 if let Value::Mem(memsize, memargs) = access {
                     match memargs {
+                        /*
                         MemArgs::Mem1Arg(MemArg::Reg(regnum, ValSize::Size64)) => {
                             // accessing the base global variable memory
                             if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v {
@@ -157,13 +159,18 @@ impl HeapChecker<'_> {
                                 return true;
                             }
                         },
+                        */
                         MemArgs::Mem2Args(
                             MemArg::Reg(regnum, ValSize::Size64),
                             MemArg::Imm(_, _, globals_offset),
                         ) => {
                             // accessing an offset from global variable memory
-                            if let Some(HeapValue::GlobalsBase) = state.regs.get(regnum, &ValSize::Size64).v {
-                                return (*globals_offset+((memsize.to_u32()/8) as i64)) <= self.analyzer.metadata.globals_size;
+                            if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
+                                if *globals_offset >= (WAMR_GLOBALS_OFFSET - 8) {
+                                    let upper_bound = WAMR_GLOBALS_OFFSET + self.analyzer.metadata.globals_size;
+                                    println!("upper bound: {:x}, offset: {:x}", upper_bound, *globals_offset+((memsize.to_u32()/8) as i64));
+                                    return (*globals_offset+((memsize.to_u32()/8) as i64)) <= upper_bound;
+                                }
                             }
                         },
                         _ => return false,
@@ -324,8 +331,8 @@ impl HeapChecker<'_> {
                         return true;
                     }
                 },
-                //Case 5: mem[WamrExecEnv+WAMR_GLOBALSBASE_OFFSET]
-                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_GLOBALSBASE_OFFSET)) => {
+                //Case 5: mem[WamrExecEnv+WAMR_STACKLIMIT_OFFSET]
+                MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, WAMR_STACKLIMIT_OFFSET)) => {
                     if let Some(HeapValue::WamrExecEnv) = state.regs.get(regnum, &ValSize::Size64).v {
                         return true;
                     }
@@ -348,6 +355,12 @@ impl HeapChecker<'_> {
                         return true;
                     }
                 },
+                //Case 9: mem[WamrStackLimit]
+                MemArgs::Mem1Arg(MemArg::Reg(regnum, ValSize::Size64)) => {
+                    if let Some(HeapValue::WamrStackLimit) = state.regs.get(regnum,&ValSize::Size64).v {
+                        return true;
+                    }
+                }
                 _ => return false,
             }
         }
@@ -376,14 +389,13 @@ impl HeapChecker<'_> {
                 if let Value::Mem(_size, memargs) = access {
                     match memargs {
                         // Case 1: an access to the table of function indexes
-                        MemArgs::Mem2Args(MemArg::Reg(regnum, ValSize::Size64), MemArg::Imm(_, _, immval)) |
                         MemArgs::MemScaleDisp(MemArg::Reg(regnum, ValSize::Size64),
                                               MemArg::Reg(_, _), MemArg::Imm(_, _, 4),
                                               MemArg::Imm(_, _, immval)) => {
                             if let Some(HeapValue::WamrModuleInstance) = state.regs.get(regnum, &ValSize::Size64).v {
-                                if *immval >= WAMR_FUNCINDS_OFFSET || 
-                                        *immval == WAMR_FUNCINDS_OFFSET - 4 || 
-                                        *immval == WAMR_FUNCINDS_OFFSET - 8 {
+                                if *immval >= WAMR_GLOBALS_OFFSET ||
+                                        *immval == WAMR_GLOBALS_OFFSET - 4 ||
+                                        *immval == WAMR_GLOBALS_OFFSET - 8 {
                                     // responsibility of call checker to check this is in-bounds
                                     return true;
                                 }

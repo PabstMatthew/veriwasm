@@ -39,7 +39,7 @@ fn run(config: Config) {
     let program = load_program(&config.module_path);
 
     println!("Loading Metadata");
-    let metadata = load_metadata(&config.module_path, config.compiler, config.globals_size);
+    let metadata = load_metadata(&config.module_path, config.compiler, config.globals_size+config.call_table_size*4);
     let (x86_64_data, func_addrs, plt) = get_data(&config.module_path, &program, &config.funcs);
     let mut valid_funcs: Vec<u64> = func_addrs.clone().iter().map(|x| x.0).collect();
     if let Compiler::Wamr = metadata.compiler {
@@ -84,7 +84,6 @@ fn run(config: Config) {
                 metadata: metadata.clone(),
                 reaching_defs: reaching_defs.clone(),
                 reaching_analyzer: ReachingDefnAnalyzer {metadata: metadata.clone(), cfg: cfg.clone(), irmap: irmap.clone()},
-                call_table_size: config.call_table_size,
             };
             let call_result = run_worklist(&cfg, &irmap, &call_analyzer);
             let call_safe = check_calls(call_result, &irmap, &call_analyzer, &valid_funcs, &plt);

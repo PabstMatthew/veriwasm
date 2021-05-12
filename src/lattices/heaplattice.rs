@@ -16,15 +16,16 @@ pub enum HeapValue {
     WamrModuleInstance, // Wamr allocates one of these per module, which contains a pointer to linear memory
     WamrFuncTypeTable,  // a pointer to a module's function type table
     WamrFuncPtrsTable,  // a pointer to a module's function pointer table
+    WamrStackLimit,     // a pointer to the end of the stack, which is accessed sometimes to prevent overflow in native functions
 }
 
 // Wamr-specific constants
-pub const WAMR_GLOBALSBASE_OFFSET: i64 = 0x18;      // the offset of the global memory region base w/n a Wamr ExecEnv
 pub const WAMR_MODULEINSTANCE_OFFSET: i64 = 0x10;   // the offset of the current ModuleInstance w/n a Wamr ExecEnv
+pub const WAMR_STACKLIMIT_OFFSET: i64 = 0x18;       // the offset of the stack limit w/n a Wamr ExecEnv
 pub const WAMR_HEAPBASE_OFFSET: i64 = 0x150;        // the offset of the linear memory region base w/n a Wamr ModuleInstance
 pub const WAMR_EXCEPTION_OFFSET: i64 = 0x68;        // the offset of the current exception w/n a Wamr ModuleInstance
 pub const WAMR_MEMBOUNDS_OFFSET: i64 = 0x1a0;       // the offset of the memory bound w/n a Wamr ModuleInstance
-pub const WAMR_FUNCINDS_OFFSET: i64 = 0x1a8;        // the offset of the function index table w/n a Wamr ModuleInstance
+pub const WAMR_GLOBALS_OFFSET: i64 = 0x1a8;         // the offset of global variables w/n a Wamr ModuleInstance
 pub const WAMR_FUNCPTRS_OFFSET: i64 = 0x28;         // the offset of function pointer table w/n a Wamr ModuleInstance
 pub const WAMR_FUNCTYPE_OFFSET: i64 = 0x30;         // the offset of function type table w/n a Wamr ModuleInstance
 pub const WAMR_PAGECNT_OFFSET: i64 = 0x144;         // the offset of the current page count w/n a Wamr ModuleInstance 

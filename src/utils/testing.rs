@@ -40,7 +40,6 @@ fn full_test_helper(path: &str) {
                 metadata: metadata.clone(),
                 reaching_defs: reaching_defs.clone(),
                 reaching_analyzer: ReachingDefnAnalyzer {metadata: metadata.clone(), cfg: cfg.clone(), irmap: irmap.clone()},
-                call_table_size: -1,
             };
             let call_result = run_worklist(&cfg, &irmap, &call_analyzer);
             let call_safe = check_calls(call_result, &irmap, &call_analyzer, &valid_funcs, &plt);
@@ -80,7 +79,6 @@ fn negative_test_helper(path: &str, func_name: &str) {
             metadata: metadata.clone(),
             reaching_defs: reaching_defs.clone(),
             reaching_analyzer: ReachingDefnAnalyzer {metadata: metadata.clone(), cfg: cfg.clone(), irmap: irmap.clone()},
-            call_table_size: -1,
         };
         let call_result = run_worklist(&cfg, &irmap, &call_analyzer);
         let call_safe = check_calls(call_result, &irmap, &call_analyzer, &valid_funcs, &plt);

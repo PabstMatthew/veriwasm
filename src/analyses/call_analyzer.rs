@@ -7,7 +7,7 @@ use crate::lattices::calllattice::{CallCheckLattice, CallCheckValue, CallCheckVa
 use crate::lattices::davlattice::DAV;
 use crate::lattices::reachingdefslattice::{LocIdx, ReachLattice};
 use crate::lattices::stacklattice::StackSlot;
-use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_FUNCPTRS_OFFSET, WAMR_FUNCTYPE_OFFSET, WAMR_FUNCINDS_OFFSET};
+use crate::lattices::heaplattice::{WAMR_MODULEINSTANCE_OFFSET, WAMR_FUNCPTRS_OFFSET, WAMR_FUNCTYPE_OFFSET, WAMR_GLOBALS_OFFSET};
 use crate::lattices::VarState;
 use crate::utils::lifter::{Binopcode, IRMap, MemArg, MemArgs, ValSize, Value};
 use crate::utils::utils::{CompilerMetadata, Compiler};
@@ -17,7 +17,6 @@ pub struct CallAnalyzer {
     pub metadata: CompilerMetadata,
     pub reaching_defs: AnalysisResult<ReachLattice>,
     pub reaching_analyzer: ReachingDefnAnalyzer,
-    pub call_table_size: i64,
 }
 
 impl AbstractAnalyzer<CallCheckLattice> for CallAnalyzer {
@@ -323,7 +322,7 @@ impl CallAnalyzer {
                         // the purpose of this code is just to pass on the fact that the result of
                         // this access will be a validated pointer
                         if let Some(CallCheckValue::WamrModuleInstance) = in_state.regs.get(base_regnum, &ValSize::Size64).v {
-                            if *immval >= WAMR_FUNCINDS_OFFSET-8 {
+                            if *immval >= WAMR_GLOBALS_OFFSET-8 {
                                 return CallCheckValueLattice { v: Some(CallCheckValue::WamrFuncIdx) };
                             }
                         }
